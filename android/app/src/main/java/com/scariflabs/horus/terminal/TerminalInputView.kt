@@ -12,6 +12,8 @@ import android.view.KeyEvent
 import com.facebook.react.uimanager.PointerEvents
 import com.facebook.react.uimanager.ReactPointerEventsView
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputMethodManager
 import android.content.Context
 import android.widget.EditText
@@ -73,6 +75,14 @@ internal fun editorReturnAction(actionId: Int, keyCode: Int?, keyAction: Int?): 
   actionId == EditorInfo.IME_ACTION_SEND -> true
   else -> null
 }
+
+/**
+ * How many of a keyboard's [before] deletes reach past the start of the
+ * editor, where [cursor] units of text sit before the cursor. Those deletes
+ * change nothing in the editor, so they must go to the terminal as DELs.
+ */
+internal fun terminalDeletesPastEditorStart(cursor: Int, before: Int): Int =
+  (before - cursor.coerceAtLeast(0)).coerceAtLeast(0)
 
 /** Bytes that bring the terminal line from [sent] to the editor's text. */
 internal data class TerminalLineEdit(val deletes: Int, val insert: String)
@@ -233,6 +243,32 @@ class TerminalInputView(context: ThemedReactContext) : EditText(context), ReactP
     if (value == lastLineResetRequest) return
     lastLineResetRequest = value
     clearSilently()
+  }
+
+  /**
+   * Keyboards such as Gboard delete through the input connection instead of
+   * sending a DEL key, even when the editor is empty. That edit changes
+   * nothing, so the watcher never fires and the backspace was lost: after an
+   * arrow, Tab, or Return it could not erase anything in the shell or a prompt.
+   */
+  override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+    val connection = super.onCreateInputConnection(outAttrs) ?: return null
+    return object : InputConnectionWrapper(connection, true) {
+      override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+        val past = terminalDeletesPastEditorStart(selectionStart, beforeLength)
+        val handled = super.deleteSurroundingText(beforeLength, afterLength)
+        if (past > 0 && terminalEnabled) write("\u007f".repeat(past))
+        return handled
+      }
+
+      override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
+        val cursor = text?.let { Character.codePointCount(it, 0, selectionStart.coerceIn(0, it.length)) } ?: 0
+        val past = terminalDeletesPastEditorStart(cursor, beforeLength)
+        val handled = super.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
+        if (past > 0 && terminalEnabled) write("\u007f".repeat(past))
+        return handled
+      }
+    }
   }
 
   override fun onAttachedToWindow() {

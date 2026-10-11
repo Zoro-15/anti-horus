@@ -31,6 +31,18 @@ class TerminalInputViewTest {
   }
 
   @Test
+  fun `keyboard deletes past the editor start go to the terminal`() {
+    // Empty editor after an arrow, Tab, or Return: Gboard's backspace edits nothing.
+    assertEquals(1, terminalDeletesPastEditorStart(cursor = 0, before = 1))
+    assertEquals(1, terminalDeletesPastEditorStart(cursor = -1, before = 1))
+    // Deletes inside the editor reach the shell through the line watcher instead.
+    assertEquals(0, terminalDeletesPastEditorStart(cursor = 3, before = 1))
+    assertEquals(0, terminalDeletesPastEditorStart(cursor = 3, before = 3))
+    assertEquals(2, terminalDeletesPastEditorStart(cursor = 3, before = 5))
+    assertEquals(0, terminalDeletesPastEditorStart(cursor = 0, before = 0))
+  }
+
+  @Test
   fun `native input leaves ordinary text unchanged without modifiers`() {
     assertEquals("model", applyTerminalInputModifiers("model", ctrlActive = false, altActive = false))
     assertEquals("é🙂", applyTerminalInputModifiers("é🙂", ctrlActive = true, altActive = false))
