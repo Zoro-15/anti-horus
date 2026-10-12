@@ -13,7 +13,8 @@ SSH in, forward ports, and sync files over USB with the optional
 **[Documentation](https://scariflabs.com/horus/docs)** ·
 **[F-Droid](https://f-droid.org/packages/com.scariflabs.horus/)** ·
 **[horus-cli on npm](https://www.npmjs.com/package/horus-cli)** ·
-**[Issues](https://github.com/scarif-labs/horus/issues)**
+**[Issues](https://github.com/scarif-labs/horus/issues)** ·
+**[Discussions](https://github.com/scarif-labs/horus/discussions)**
 
 <p align="center">
   <img src="docs/screenshots/launcher.png" width="260" alt="Horus launcher">
@@ -231,6 +232,20 @@ projects.
   listens on the phone's loopback only, accepts only paired keys, and refuses
   root. Any app on the phone can reach loopback ports, so the key is the
   boundary.
+
+## Community
+
+Ask setup and troubleshooting questions in
+[Q&A](https://github.com/scarif-labs/horus/discussions/categories/q-a),
+propose improvements in
+[Ideas](https://github.com/scarif-labs/horus/discussions/categories/ideas),
+or share a workflow in
+[Show and tell](https://github.com/scarif-labs/horus/discussions/categories/show-and-tell).
+Use [Issues](https://github.com/scarif-labs/horus/issues) for reproducible bugs.
+
+See [Contributing](CONTRIBUTING.md) for reporting and pull request guidance,
+our [Code of Conduct](.github/CODE_OF_CONDUCT.md) for participation standards,
+and the [security policy](.github/SECURITY.md) before reporting a vulnerability.
 
 ## License
 
