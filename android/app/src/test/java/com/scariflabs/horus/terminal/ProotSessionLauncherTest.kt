@@ -1271,6 +1271,128 @@ class ProotSessionLauncherTest {
     }
   }
 
+  @Test
+  fun remoteAccessHeredocsTerminateBeforeFollowingCommands() {
+    val base = Files.createTempDirectory("horus-remote-heredocs").toFile()
+    try {
+      val rootfs = File(base, "rootfs").apply { mkdirs() }
+      File(rootfs, "etc").mkdirs()
+      val launch = launcher(base, File(base, "proc").apply { mkdirs() }).remoteAccessLaunchSpec(
+        rootfs,
+        File(base, "home").apply { mkdirs() },
+        null,
+        "luna",
+      )
+      val script = launch.argv.takeLast(8)[2]
+      val lines = script.lines()
+      val followingCommands = mapOf(
+        "HORUS_SHELL" to listOf("chmod 755 \"\$login_shell.tmp\"", "mv -f \"\$login_shell.tmp\" \"\$login_shell\""),
+        "HORUS_INSTALLER" to listOf("chmod 755 \"\$agent_installer.tmp\"", "mv -f \"\$agent_installer.tmp\" \"\$agent_installer\""),
+        "HORUS_ZSH" to listOf("mv -f /etc/zsh/zshrc.d/horus-ssh.zsh.tmp /etc/zsh/zshrc.d/horus-ssh.zsh"),
+      )
+      for ((delimiter, following) in followingCommands) {
+        val opener = lines.indices.filter { lines[it].endsWith("<<'$delimiter'") }
+        assertEquals("one opener for $delimiter", 1, opener.size)
+        val terminator = lines.indices.filter { lines[it].trim() == delimiter }
+        assertEquals("one terminator for $delimiter", 1, terminator.size)
+        val start = opener.single()
+        val end = terminator.single()
+        assertEquals("$delimiter must close at column zero", delimiter, lines[end])
+        assertTrue("$delimiter closes after its opener", end > start)
+        assertEquals(following, lines.subList(end + 1, end + 1 + following.size))
+        val body = lines.subList(start + 1, end).joinToString("\n") + "\n"
+        if (delimiter == "HORUS_INSTALLER") {
+          assertTrue("shared Codex functions must survive interpolation", body.contains(ProotSessionLauncher.CODEX_INSTALL_SCRIPT))
+          assertTrue(body.contains("install_codex() {"))
+          assertTrue(body.contains("exec \"\$launcher\" \"\$@\""))
+        }
+        // Execute only the rendered cat/chmod/mv fragment in a temporary directory.
+        // Never run remote provisioning or the generated installers themselves.
+        val outputFile = File(base, delimiter)
+        val fragment = lines.subList(start, end + 1 + following.size).joinToString("\n")
+          .replace("/etc/zsh/zshrc.d/horus-ssh.zsh", outputFile.absolutePath)
+        val fixture = "set -eu\nlogin_shell='${outputFile.absolutePath}'\n" +
+          "agent_installer='${outputFile.absolutePath}'\n$fragment\nprintf 'after:$delimiter\\n'\n"
+        val output = File(base, "$delimiter.log")
+        val process = ProcessBuilder("/bin/sh", "-c", fixture)
+          .redirectErrorStream(true).redirectOutput(output).start()
+        if (!process.waitFor(10, TimeUnit.SECONDS)) {
+          process.destroyForcibly()
+          throw AssertionError("$delimiter fixture exceeded the bounded host test timeout")
+        }
+        assertEquals(output.readText(), 0, process.exitValue())
+        assertEquals("after:$delimiter\n", output.readText())
+        assertEquals("subsequent commands must not enter $delimiter payload", body, outputFile.readText())
+        if (delimiter != "HORUS_ZSH") {
+          val syntax = ProcessBuilder("/bin/sh", "-n", outputFile.absolutePath)
+            .redirectErrorStream(true).redirectOutput(output).start()
+          assertTrue(syntax.waitFor(10, TimeUnit.SECONDS))
+          assertEquals(output.readText(), 0, syntax.exitValue())
+        }
+      }
+    } finally {
+      base.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun codexStampFailureInvalidatesReadinessAfterSuccessfulVersionChecks() {
+    val base = Files.createTempDirectory("horus-codex-stamp-failure").toFile()
+    try {
+      val home = File(base, "home").apply { mkdirs() }
+      val bin = File(home, ".local/bin").apply { mkdirs() }
+      val cache = File(home, ".cache/horus").apply { mkdirs() }
+      val marker = File(cache, "codex.ready").apply { writeText("ready:stale\n") }
+      val auth = File(home, ".codex/auth.json").apply {
+        requireNotNull(parentFile).mkdirs(); writeText("private credentials")
+      }
+      val config = File(home, ".codex/config.toml").apply { writeText("user config") }
+      val versionLog = File(base, "version.log")
+      File(home, ".local/lib/node_modules/@openai/codex/bin/codex.js").apply {
+        requireNotNull(parentFile).mkdirs()
+        writeText("#!/usr/bin/env node\nrequire('fs').appendFileSync('${versionLog.absolutePath}', process.argv[2] + '\\n');\n")
+      }
+      File(home, ".local/lib/node_modules/@openai/codex/vendor/aarch64-unknown-linux-musl/bin/codex").apply {
+        requireNotNull(parentFile).mkdirs(); writeText("native fixture"); setExecutable(true)
+      }
+      val stampLog = File(base, "stamp.log")
+      for ((name, body) in mapOf(
+        "zsh" to "exit 0",
+        "node" to "exit 0",
+        "npm" to "exit 99",
+        "stat" to "printf 'stamp_failed\\n' >> '${stampLog.absolutePath}'\nexit 91",
+      )) {
+        File(bin, name).apply { writeText("#!/bin/sh\n$body\n"); setExecutable(true) }
+      }
+      val node = requireNotNull(System.getenv("PATH")).split(File.pathSeparator)
+        .map { File(it, "node") }.first { it.isFile && it.canExecute() }
+      val launch = launcher(base, File(base, "proc").apply { mkdirs() }).toolchainProvisionLaunchSpec(
+        File(base, "rootfs").apply { mkdirs() }, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX,
+      )
+      val script = launch.argv.last().replace("/root", home.absolutePath).replace("/usr/bin/node", node.absolutePath)
+      val output = File(base, "provision.log")
+      val process = ProcessBuilder("/bin/sh", "-c", script)
+        .redirectErrorStream(true).redirectOutput(output)
+        .apply { environment()["HORUS_TOOLCHAIN_TARGET"] = "codex" }.start()
+      if (!process.waitFor(10, TimeUnit.SECONDS)) {
+        process.destroyForcibly()
+        throw AssertionError("Codex provisioning exceeded the bounded host test timeout")
+      }
+      assertEquals("both version checks succeed before stamping", listOf("--version", "--version"), versionLog.readLines())
+      assertEquals("stamp_failed\n", stampLog.readText())
+      assertEquals(output.readText(), 23, process.exitValue())
+      assertEquals("codex_failed\n", File(cache, "provision-stage").readText())
+      assertTrue(output.readText().contains("HORUS_INSTALL_STAGE=codex_failed"))
+      assertFalse("stale readiness must be removed", marker.exists())
+      assertFalse(output.readText().contains("HORUS_INSTALL_STAGE=ready"))
+      assertFalse(output.readText().contains("HORUS_TOOLCHAIN_READY"))
+      assertEquals("private credentials", auth.readText())
+      assertEquals("user config", config.readText())
+    } finally {
+      base.deleteRecursively()
+    }
+  }
+
   private fun launcher(base: File, hostProc: File, scratch: File = File(base, "scratch")): ProotSessionLauncher =
     ProotSessionLauncher(
       runtime = ProotRuntimeLocator.LocatedRuntime(
