@@ -808,6 +808,7 @@ class ProotSessionLauncherTest {
       command(
         "npm",
         "printf 'npm\\n' >> '${npmLog.absolutePath}'\n" +
+          "[ ! -e '${entryPath}' ] || exit 92\nmkdir -p '${payloadDir.absolutePath}'\n" +
           "cat > '${entryPath}' <<'HORUS_TEST_ENTRY'\n#!/bin/sh\nif [ \"${'$'}1\" = --version ]; then printf 'version\\n' >> '${versionLog.absolutePath}'; fi\nHORUS_TEST_ENTRY\nchmod u+rx '${entryPath}'",
       )
       val launcher = File(guestBin, "opencode")
@@ -874,6 +875,15 @@ class ProotSessionLauncherTest {
       assertEquals("npm\n", npmLog.readText())
       assertEquals("version\n", versionLog.readText())
       assertTrue(entry.isFile && entry.canExecute())
+      val config = File(guestRoot, ".config/opencode/user.json").apply {
+        parentFile!!.mkdirs(); writeText("preserve user config")
+      }
+      entry.writeText("#!/bin/sh\nexit 91\n")
+      File(cacheDir, "opencode.ready").writeText("ready:old-payload\n")
+      assertTrue(runProvision().contains("HORUS_TOOLCHAIN_READY"))
+      assertEquals("npm\nnpm\n", npmLog.readText())
+      assertEquals("version\nversion\n", versionLog.readText())
+      assertEquals("preserve user config", config.readText())
     } finally {
       base.deleteRecursively()
     }

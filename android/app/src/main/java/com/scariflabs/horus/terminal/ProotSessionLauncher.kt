@@ -1460,6 +1460,13 @@ ${ZSH_EXIT_SCRIPT.prependIndent("      ")}
         [ ! -f "${'$'}target_marker" ] || [ "${'$'}opencode_payload_valid" != true ];
       }; then
         mark_provision_stage opencode
+        # npm/postinstall can retain an existing corrupted selected binary.
+        # Remove only the replaceable package, preserving ~/.config/opencode.
+        rm -f "${'$'}target_marker"
+        if ! rm -rf /root/.local/lib/node_modules/opencode-ai; then
+          mark_provision_stage opencode_failed
+          exit 24
+        fi
         if ! run_downloading OpenCode "${'$'}(npm_download_kb opencode-ai)" /root/.npm /root/.cache/horus/opencode-install.log npm install --global --force --prefix /root/.local --no-package-lock --no-audit --no-fund --no-progress --loglevel=error opencode-ai; then
           mark_provision_stage opencode_failed
           exit 24
