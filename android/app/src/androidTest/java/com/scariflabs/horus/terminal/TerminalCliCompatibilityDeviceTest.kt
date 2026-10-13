@@ -200,7 +200,9 @@ class TerminalCliCompatibilityDeviceTest {
     expectedExitCount: Int,
   ): TerminalSessionSupervisor.SessionHandle {
     val sessionId = supervisor.nextSessionId()
-    val launch = launcher.interactiveShellLaunchSpec(rootfs, paths.home, paths.defaultWorkspace)
+    // This matrix starts before apk installs zsh and asserts BusyBox prompt bytes.
+    val launch = launcher.interactiveShellLaunchSpec(rootfs, paths.home, paths.defaultWorkspace,
+      sessionCommand = "exec /bin/sh -l")
     val outcome = supervisor.start(
       sessionId,
       TerminalSessionSupervisor.StartSpec(launch.argv, launch.environment, launch.workingDirectory, 30, 120),

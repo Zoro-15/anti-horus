@@ -31,12 +31,12 @@ class TerminalToolchainDeviceTest {
 
     fun textFrom(offset: Int): String = synchronized(lock) {
       val bytes = output.toByteArray()
-      String(bytes.copyOfRange(offset.coerceIn(0, bytes.size), bytes.size), Charsets.ISO_8859_1)
+      String(bytes.copyOfRange(offset.coerceIn(0, bytes.size), bytes.size), Charsets.UTF_8)
     }
 
     fun tail(limit: Int = 1200): String = synchronized(lock) {
       val bytes = output.toByteArray()
-      String(bytes.copyOfRange(maxOf(0, bytes.size - limit), bytes.size), Charsets.ISO_8859_1)
+      String(bytes.copyOfRange(maxOf(0, bytes.size - limit), bytes.size), Charsets.UTF_8)
     }
   }
 
@@ -122,7 +122,7 @@ class TerminalToolchainDeviceTest {
         toolchainTarget = TerminalRuntimeContract.TOOLCHAIN_TARGET_SHELL,
       )
       android.util.Log.i(LOG_TAG, "P5_PHASE=first_shell_started session=${first.sessionId}")
-      awaitPrompt(sink, 20_000)
+      awaitPrompt(sink, 180_000)
       assertTrue("bare-terminal install target was not visible", sink.tail(8_000).contains("HORUS_INSTALL_TARGET=shell"))
       assertTrue("bare-terminal install completion was not visible", sink.tail(8_000).contains("HORUS_TOOLCHAIN_READY"))
       android.util.Log.i(LOG_TAG, "P5_PHASE=first_prompt_observed")
@@ -149,7 +149,7 @@ class TerminalToolchainDeviceTest {
       write(
         supervisor,
         first.sessionId,
-        "printf 'P5_INSTALL_BEGIN\\n'; apk add --no-cache --no-progress bash curl ca-certificates gcompat git jq openssh-client-default nodejs npm python3 py3-pip ripgrep libgcc libstdc++ >/root/.horus-p5-apk.log 2>&1; status=\$?; if [ \"\$status\" -ne 0 ]; then tail -30 /root/.horus-p5-apk.log; fi; printf 'P5_INSTALL_RESULT:%s\\n' \"\$status\"; printf 'P5_INSTALL_END\\n'",
+        "printf 'P5_INSTALL_BEGIN\\n'; apk add --no-cache --no-progress bash curl ca-certificates gcompat git jq openssh-client-default nodejs npm python3 py3-pip ripgrep libgcc libstdc++ >/root/.horus-p5-apk.log 2>&1; p5_install_status=\$?; if [ \"\$p5_install_status\" -ne 0 ]; then tail -30 /root/.horus-p5-apk.log; fi; printf 'P5_INSTALL_RESULT:%s\\n' \"\$p5_install_status\"; printf 'P5_INSTALL_END\\n'",
       )
       awaitMarkersInOrder(
         sink,
@@ -552,7 +552,8 @@ class TerminalToolchainDeviceTest {
     android.util.Log.i(LOG_TAG, "P5_PHASE=prompt_wait_begin timeoutMs=$timeoutMs")
     val deadline = System.currentTimeMillis() + timeoutMs
     while (System.currentTimeMillis() < deadline) {
-      if (sink.tail().contains("# ")) return
+      val plain = sink.tail().replace(Regex("\u001b\\[[0-?]*[ -/]*[@-~]"), "")
+      if (plain.contains("# ") || plain.contains("└─[")) return
       Thread.sleep(50)
     }
     android.util.Log.e(LOG_TAG, "P5_PHASE=prompt_wait_timeout tail=${sink.tail().replace('\n', '|')}")
