@@ -12,6 +12,26 @@ import org.junit.Test
 
 class ProotSessionLauncherTest {
   @Test
+  fun interactiveZshExitAndEofNormalizeBuildFailuresButPreserveKillsAndCommandStatus() {
+    val zsh = System.getenv("HORUS_TEST_ZSH") ?: "/usr/bin/zsh"
+    org.junit.Assume.assumeTrue("zsh required for shell behavior test", File(zsh).canExecute())
+    fun status(commands: String, interactive: Boolean): Int {
+      val process = ProcessBuilder(zsh, if (interactive) "-dfi" else "-df")
+        .redirectErrorStream(true).start()
+      process.outputStream.bufferedWriter().use {
+        it.write(ProotSessionLauncher.ZSH_EXIT_SCRIPT + "\n" + commands)
+      }
+      assertTrue("zsh fixture timed out", process.waitFor(10, TimeUnit.SECONDS))
+      return process.exitValue()
+    }
+    assertEquals(0, status("false\nexit\n", true))
+    assertEquals(0, status("false\n", true))
+    assertEquals(137, status("exit 137\n", true))
+    assertEquals(137, status("kill -KILL ${'$'}${'$'}\n", true))
+    assertEquals(23, status("exit 23\n", false))
+  }
+
+  @Test
   fun shortTmpBindFitsClaudeSocketAndPrunesOnlyOrphanedProotFiles() {
     val base = Files.createTempDirectory("horus-tmp").toFile()
     try {
@@ -110,6 +130,9 @@ class ProotSessionLauncherTest {
       assertFalse(launch.argv.any { it.contains("compat-bin") })
       assertEquals("/workspace", launch.argv[launch.argv.indexOf("-w") + 1])
       assertTrue(launch.environment.contains("PWD=/workspace"))
+      assertTrue(launch.environment.contains("DOTNET_gcServer=0"))
+      assertTrue(launch.environment.contains("DOTNET_GCHeapHardLimit=0x40000000"))
+      assertTrue(launch.environment.contains("DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER=1"))
       assertTrue(launch.environment.contains("PROOT_NO_SECCOMP=1"))
       assertTrue(launch.environment.contains("PATH=${ProotSessionLauncher.GUEST_PATH}"))
       assertFalse(launch.argv.any { it.endsWith(":${ProotSessionLauncher.GUEST_PROC}/meminfo") && it.contains("proc-compat") })
@@ -139,6 +162,7 @@ class ProotSessionLauncherTest {
       assertTrue(zshrc.readText().contains("PROMPT=$'%{\\e[0;34m%}%B┌─["))
       assertTrue(zshrc.readText().contains("export PATH=\"\$HOME/.local/bin:/usr/local/bin:"))
       assertTrue(zshrc.readText().contains("umask 0002"))
+      assertTrue(zshrc.readText().contains(ProotSessionLauncher.ZSH_EXIT_SCRIPT))
       // A stray ^S must not freeze the terminal.
       assertTrue(zshrc.readText().contains("unsetopt flow_control\nstty -ixon"))
       assertFalse(zshrc.readText().contains("RPROMPT"))

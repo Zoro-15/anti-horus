@@ -357,6 +357,10 @@ class ProotSessionLauncher(
       // `/bin/busybox top` must reach the guest binary with their argv intact.
       add("PATH=$guestPath")
       add("LANG=$GUEST_LANG")
+      // Bound CoreCLR's GC reservations on Android ARM64's limited VA space.
+      add("DOTNET_gcServer=0")
+      add("DOTNET_GCHeapHardLimit=0x40000000")
+      add("DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER=1")
       add("TZ=${GuestTimeZone.forGuest(rootfsDir)}")
       addAll(downloadSources.guestEnvironment())
     }
@@ -1087,8 +1091,21 @@ class ProotSessionLauncher(
       fi
       $ZSH_PROFILE_END
     """.trimIndent()
+    internal val ZSH_EXIT_SCRIPT = """
+      # Interactive exit/EOF must not inherit a failed build's status.
+      # Keep signal-style statuses, and never apply this to command shells.
+      if [[ -o interactive ]]; then
+        zshexit() { (( ${'$'}? > 128 )) || exit 0; }
+      fi
+    """.trimIndent()
+    internal val DOTNET_ENV_SCRIPT = """
+      export DOTNET_gcServer="${'$'}{DOTNET_gcServer:-0}"
+      export DOTNET_GCHeapHardLimit="${'$'}{DOTNET_GCHeapHardLimit:-0x40000000}"
+      export DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER="${'$'}{DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER:-1}"
+    """.trimIndent()
     private val ZSHRC_BLOCK = """
       $ZSHRC_BEGIN
+${ZSH_EXIT_SCRIPT.prependIndent("      ")}
       setopt prompt_subst
       setopt transient_rprompt
       umask 0002
@@ -1671,6 +1688,7 @@ EOF
       #!/bin/sh
       export PATH="${'$'}HOME/.local/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
       export LANG="${'$'}{LANG:-C.UTF-8}"
+${DOTNET_ENV_SCRIPT.prependIndent("      ")}
       # A script loses dropbear's "-" login marker in ${'$'}0; an interactive
       # login is the call without arguments (commands arrive as -c ...).
       if [ "${'$'}#" -eq 0 ]; then
@@ -1766,6 +1784,7 @@ ${CODEX_INSTALL_SCRIPT.prependIndent("      ")}
       # explicit socket. Do the same for interactive SSH logins only.
       mkdir -p /etc/zsh/zshrc.d
       cat > /etc/zsh/zshrc.d/horus-ssh.zsh.tmp <<'HORUS_ZSH'
+${ZSH_EXIT_SCRIPT.prependIndent("      ")}
       if [[ -n "${'$'}{SSH_CONNECTION-}" ]]; then
         claude() {
           case " ${'$'}* " in
