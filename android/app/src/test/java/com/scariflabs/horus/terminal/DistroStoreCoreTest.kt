@@ -83,6 +83,21 @@ class DistroStoreCoreTest {
   )
 
   @Test
+  fun `layout startup prunes orphaned staging files from current and legacy tmp locations`() {
+    val store = newStore()
+    val directories = listOf(store.storage.guestTmp, File(store.storage.sessions, ".proot-scratch"),
+      File(store.storage.versionRootfs(AlpineRootfsCatalog.ROOTFS_ID), "tmp"))
+    val leftovers = directories.map { directory ->
+      directory.mkdirs()
+      File(directory, "proot-2147483647-ABC123").apply { writeText("stale") }
+    }
+    val userFile = File(directories.last(), "user.tmp").apply { writeText("keep") }
+    store.ensureLayout()
+    leftovers.forEach { assertFalse(it.exists()) }
+    assertEquals("keep", userFile.readText())
+  }
+
+  @Test
   fun `happy path installs verifies probes and writes the active record`() {
     val store = newStore()
     // Pre-create a home sentinel: installs must never touch user data.

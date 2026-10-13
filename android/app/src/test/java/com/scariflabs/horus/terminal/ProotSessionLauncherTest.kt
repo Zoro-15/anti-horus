@@ -12,6 +12,55 @@ import org.junit.Test
 
 class ProotSessionLauncherTest {
   @Test
+  fun shortTmpBindFitsClaudeSocketAndPrunesOnlyOrphanedProotFiles() {
+    val base = Files.createTempDirectory("horus-tmp").toFile()
+    try {
+      val paths = DistroStorePaths(base)
+      val scratch = paths.guestTmp.apply { mkdirs() }
+      val proc = File(base, "proc").apply { mkdirs() }
+      File(proc, "123").mkdirs()
+      val live = File(scratch, "proot-123-ABC123").apply { writeText("keep") }
+      val dead = File(scratch, "proot-456-ABC123").apply { writeText("orphan") }
+      val deadTree = File(scratch, "proot-tmpfs--456-ABC123").apply { mkdirs() }
+      File(deadTree, "payload").writeText("orphan")
+      val userFile = File(scratch, "proot-user-data").apply { writeText("keep") }
+      val outside = File(base, "outside").apply { mkdirs() }
+      File(outside, "keep").writeText("user data")
+      Files.createSymbolicLink(File(deadTree, "link").toPath(), outside.toPath())
+      val rootfs = File(base, "rootfs").apply { mkdirs() }
+      val home = File(base, "home").apply { mkdirs() }
+      val launch = launcher(base, proc, scratch).interactiveShellLaunchSpec(rootfs, home)
+      assertTrue(launch.argv.windowed(2).contains(listOf("-b", "${scratch.canonicalPath}:/tmp")))
+      assertTrue(launch.environment.contains("PROOT_TMP_DIR=${scratch.canonicalPath}"))
+      assertTrue(live.exists())
+      assertFalse(dead.exists())
+      assertFalse(deadTree.exists())
+      assertTrue(userFile.exists())
+      assertTrue(File(outside, "keep").exists())
+      val androidTmp = DistroStorePaths(File("/data/user/0/com.scariflabs.horus/files/horus")).guestTmp
+      val socketPath = "${androidTmp.path}/claude-messaging-61001/12264.sock"
+      assertTrue("translated socket must fit sun_path with NUL", socketPath.toByteArray(Charsets.UTF_8).size < 108)
+    } finally {
+      base.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun prootCleanupDoesNotFollowATmpDirectorySymlink() {
+    val base = Files.createTempDirectory("horus-tmp-link").toFile()
+    try {
+      val outside = File(base, "outside").apply { mkdirs() }
+      val keep = File(outside, "proot-456-ABC123").apply { writeText("keep") }
+      val link = File(base, "tmp")
+      Files.createSymbolicLink(link.toPath(), outside.toPath())
+      DistroStoreCore.pruneProotTemps(link, File(base, "proc"))
+      assertTrue(keep.exists())
+    } finally {
+      base.deleteRecursively()
+    }
+  }
+
+  @Test
   fun bindsWorkspaceAndSetsPersistentGuestPaths() {
     val base = Files.createTempDirectory("horus-launcher").toFile()
     try {

@@ -75,6 +75,13 @@ class DistroStoreCore(
         throw IOException("cannot create ${directory.relativeToOrNull(paths.base)}")
       }
     }
+    pruneProotTemps(paths.guestTmp)
+    pruneProotTemps(File(paths.sessions, ".proot-scratch"))
+    // Reclaim leftovers from releases that staged files in the rootfs /tmp.
+    paths.versions.listFiles()?.filter { AlpineRootfsCatalog.isValidRootfsId(it.name) }?.forEach {
+      val rootfs = paths.versionRootfs(it.name)
+      if (isOwnedDirectory(rootfs)) pruneProotTemps(File(rootfs, "tmp"))
+    }
   }
 
   @Synchronized
@@ -448,4 +455,31 @@ class DistroStoreCore(
     .put("rootfsSha256", rootfsSha256)
     .put("installedAtIso", installedAtIso)
     .put("probeMarkers", org.json.JSONArray(probeMarkers))
+
+  companion object {
+    private val PROOT_TEMP_NAME = Regex("^(?:proot|prooted|prootseq|prootshm|proot-tmpfs-)-([1-9][0-9]*)-[a-zA-Z0-9]{6}$")
+
+    /** PRoot names include the host tracer PID. Never unlink a live session's staging files. */
+    internal fun pruneProotTemps(directory: File, hostProc: File = File("/proc")) {
+      if (Files.isSymbolicLink(directory.toPath())) return
+      directory.listFiles()?.forEach { entry ->
+        val pid = PROOT_TEMP_NAME.matchEntire(entry.name)?.groupValues?.get(1) ?: return@forEach
+        if (File(hostProc, pid).exists()) return@forEach
+        // Best effort when storage is full; walkFileTree never follows symlinks.
+        runCatching {
+          Files.walkFileTree(entry.toPath(), object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+            override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+              Files.deleteIfExists(file)
+              return java.nio.file.FileVisitResult.CONTINUE
+            }
+            override fun postVisitDirectory(dir: java.nio.file.Path, error: IOException?): java.nio.file.FileVisitResult {
+              if (error != null) throw error
+              Files.deleteIfExists(dir)
+              return java.nio.file.FileVisitResult.CONTINUE
+            }
+          })
+        }
+      }
+    }
+  }
 }

@@ -335,7 +335,7 @@ class TerminalRuntimeModule(
   private fun prootProber(): GuestProber {
     val located = locateProotRuntime()
     return if (located is ProotRuntimeLocator.Location.Available) {
-      ProotGuestProber(located.runtime, File(paths.sessions, ".proot-scratch"))
+      ProotGuestProber(located.runtime, paths.guestTmp)
     } else {
       UnavailableGuestProber((located as ProotRuntimeLocator.Location.Unavailable).reasonCode)
     }

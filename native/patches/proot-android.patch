@@ -165,7 +165,7 @@ index 447d723..f18f129 100644
  
  	child = get_tracee(parent, (pid_t) pid, true);
 diff --git a/src/syscall/enter.c b/src/syscall/enter.c
-index 93f4306..91aa02c 100644
+index 93f4306..c82cf7d 100644
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
 @@ -1808,6 +1808,19 @@ static void maybe_redirect_userns_file(Tracee *tracee, Reg reg)
@@ -188,7 +188,34 @@ index 93f4306..91aa02c 100644
  /**
   * Translate the input arguments of the current @tracee's syscall in the
   * @tracee->pid process area. This function sets @tracee->status to
-@@ -2350,6 +2363,16 @@ int translate_syscall_enter(Tracee *tracee)
+@@ -1979,7 +1992,7 @@ int translate_syscall_enter(Tracee *tracee)
+ 			break;
+ 
+ 		poke_reg(tracee, SYSARG_2, address);
+-		poke_reg(tracee, SYSARG_3, sizeof(struct sockaddr_un));
++		poke_reg(tracee, SYSARG_3, status);
+ 
+ 		status = 0;
+ 		break;
+@@ -2332,6 +2345,8 @@ int translate_syscall_enter(Tracee *tracee)
+ 		if (status <= 0)
+ 			break;
+ 
++		const int translated_size = status;
++
+ 		/* These parameters are used/restored at the exit stage.  */
+ 		poke_reg(tracee, SYSARG_5, sock_addr_saved);
+ 		poke_reg(tracee, SYSARG_6, size);
+@@ -2339,7 +2354,7 @@ int translate_syscall_enter(Tracee *tracee)
+ 		/* Remember: POKE_WORD puts -errno in status and breaks if an
+ 		 * error occured.  */
+ 		POKE_WORD(SYSARG_ADDR(2), sock_addr);
+-		POKE_WORD(SYSARG_ADDR(3), sizeof(struct sockaddr_un));
++		POKE_WORD(SYSARG_ADDR(3), translated_size);
+ 
+ 		status = 0;
+ 		break;
+@@ -2350,6 +2365,16 @@ int translate_syscall_enter(Tracee *tracee)
  #undef POKE_WORD
  
  	case PR_access:
@@ -205,7 +232,7 @@ index 93f4306..91aa02c 100644
  	case PR_acct:
  	case PR_chmod:
  	case PR_chown:
-@@ -2508,6 +2531,13 @@ int translate_syscall_enter(Tracee *tracee)
+@@ -2508,6 +2533,13 @@ int translate_syscall_enter(Tracee *tracee)
  	case PR_fchmodat:
  	case PR_faccessat:
  	case PR_faccessat2:
@@ -218,6 +245,7 @@ index 93f4306..91aa02c 100644
 +
  	case PR_futimesat:
  	case PR_mknodat:
+ 		dirfd = peek_reg(tracee, CURRENT, SYSARG_1);
 diff --git a/src/tracee/seccomp.c b/src/tracee/seccomp.c
 index 6a4e1f8..9a7f8dd 100644
 --- a/src/tracee/seccomp.c
@@ -487,3 +515,37 @@ index 9c67b10..f4ddfb0 100644
  
  		finalStat.st_nlink = atoi(final + strlen(final) - 4);
  
+diff --git a/src/syscall/socket.c b/src/syscall/socket.c
+index ec74950..7fea3ad 100644
+--- a/src/syscall/socket.c
++++ b/src/syscall/socket.c
+@@ -88,8 +88,8 @@ static int read_sockaddr_un(Tracee *tracee, struct sockaddr_un *sockaddr, word_t
+  * in the @tracee memory at the given @address.  See the documentation
+  * of read_sockaddr_un() for the meaning of the @size parameter.
+  * Also, the new address of the translated sockaddr_un is put in the
+- * @address parameter.  This function returns -errno if an error
+- * occurred, otherwise 0.
++ * @address parameter.  This function returns -errno on error, 0 when no translation is needed,
++ * otherwise the translated sockaddr length (including its terminating NUL).
+  */
+ int translate_socketcall_enter(Tracee *tracee, word_t *address, int size)
+ {
+@@ -144,6 +144,7 @@ int translate_socketcall_enter(Tracee *tracee, word_t *address, int size)
+ 		/* Let's use this shorter path now.  */
+ 		strcpy(host_path, shorter_host_path);
+ 	}
++	bzero(sockaddr.sun_path, sizeof_path);
+ 	strncpy(sockaddr.sun_path, host_path, sizeof_path);
+ 
+ 	/* Push the updated sockaddr to a newly allocated space.  */
+@@ -155,7 +156,9 @@ int translate_socketcall_enter(Tracee *tracee, word_t *address, int size)
+ 	if (status < 0)
+ 		return status;
+ 
+-	return 1;
++	/* The kernel must see the host pathname length, not the guest addrlen.
++	 * A full 108-byte sun_path is legal without a terminating NUL. */
++	return offsetof_path + MIN(strlen(host_path) + 1, sizeof_path);
+ }
+ 
+ /**

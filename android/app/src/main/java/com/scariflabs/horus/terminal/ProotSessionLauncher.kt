@@ -237,6 +237,8 @@ class ProotSessionLauncher(
     if (!scratchDir.exists() && !scratchDir.mkdirs() && !scratchDir.isDirectory) {
       throw IllegalStateException("cannot create proot scratch directory")
     }
+    require(!Files.isSymbolicLink(scratchDir.toPath())) { "proot scratch directory is a symbolic link" }
+    DistroStoreCore.pruneProotTemps(scratchDir, hostProcDir)
     prepareResolverFile(rootfsDir)
     prepareCodexProfile(guestHomeDir)
     when (toolchainTarget) {
@@ -302,6 +304,8 @@ class ProotSessionLauncher(
         add("-b")
         add("$workspacePath:/workspace")
       }
+      add("-b")
+      add("${scratchDir.canonicalPath}:/tmp")
       deviceBinds.forEach { bind ->
         add("-b")
         add("${bind.source.canonicalFile.absolutePath}:${bind.guestPath}")
