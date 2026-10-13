@@ -16,7 +16,7 @@ No root. No Termux. Open source.
 [![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B%20·%20arm64-80EB12?labelColor=0b0f0e)](https://f-droid.org/packages/com.scariflabs.horus/)
 [![MIT license](https://img.shields.io/badge/license-MIT-80EB12?labelColor=0b0f0e)](LICENSE)
 
-[Website](https://scariflabs.com/horus) · [Docs](https://scariflabs.com/horus/docs) · [CLI](cli/README.md) · [Issues](https://github.com/scarif-labs/horus/issues)
+[Website](https://scariflabs.com/horus) · [Docs](https://scariflabs.com/horus/docs) · [CLI](cli/README.md) · [Issues](https://github.com/scarif-labs/horus/issues) · [Discussions](https://github.com/scarif-labs/horus/discussions)
 
 <br>
 
@@ -294,6 +294,20 @@ then Alpine packages, then each agent from its publisher the first time it is
 opened.
 
 </details>
+
+## 𓀀 Community
+
+Ask setup and troubleshooting questions in
+[Q&A](https://github.com/scarif-labs/horus/discussions/categories/q-a),
+propose improvements in
+[Ideas](https://github.com/scarif-labs/horus/discussions/categories/ideas),
+or share a workflow in
+[Show and tell](https://github.com/scarif-labs/horus/discussions/categories/show-and-tell).
+Use [Issues](https://github.com/scarif-labs/horus/issues) for reproducible bugs.
+
+See [Contributing](CONTRIBUTING.md) for reporting and pull request guidance,
+our [Code of Conduct](.github/CODE_OF_CONDUCT.md) for participation standards,
+and the [security policy](.github/SECURITY.md) before reporting a vulnerability.
 
 <p align="center">𓋹 &nbsp; 𓊽 &nbsp; 𓌀 &nbsp; 𓂀 &nbsp; 𓌀 &nbsp; 𓊽 &nbsp; 𓋹</p>
 
