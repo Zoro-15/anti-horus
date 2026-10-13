@@ -41,6 +41,14 @@ html, body { margin: 0; background: transparent; }
 }
 .ring::after { content: ""; position: absolute; right: -7px; top: 8px; bottom: 8px; width: 3px; background: #c9a85a; border-radius: 2px; }
 .gloss { width: 230px; font-family: Michroma; font-size: 11px; letter-spacing: 3px; color: #8d8a76; }
+@font-face { font-family: Fira; src: url(../../android/app/src/main/assets/fonts/FiraCode_bold.ttf); }
+.agents { margin-top: 26px; display: flex; gap: 46px; align-items: flex-start; }
+.agent { width: 96px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.agent img, .shell { width: 40px; height: 40px; }
+.agent img.mono { filter: brightness(0) invert(1); }
+.agent img.tile { border-radius: 8px; outline: 1px solid #2c2c2c; }
+.shell { font-family: Fira; color: #eef3ea; font-size: 26px; line-height: 40px; text-align: center; letter-spacing: -1px; }
+.agent span { font-family: Michroma; font-size: 9px; letter-spacing: 2px; color: #a59f84; white-space: nowrap; }
 </style></head>
 <body>
 <div class="card">
@@ -54,10 +62,11 @@ html, body { margin: 0; background: transparent; }
   <div class="mid">
     <img class="eye" src="../../assets/brand/horus.svg">
     <div class="name">HORUS</div>
-    <div class="cart">
-      <span class="gloss" style="text-align:right">ḤR</span>
-      <span class="ring">𓉔𓂋𓅃</span>
-      <span class="gloss">THE ONE FAR ABOVE</span>
+    <div class="agents">
+      <div class="agent"><img src="../../src/terminal/harness-logos/claude-code.svg"><span>CLAUDE CODE</span></div>
+      <div class="agent"><img class="mono" src="../../src/terminal/harness-logos/openai-blossom.svg"><span>CODEX</span></div>
+      <div class="agent"><img class="tile" src="../../src/terminal/harness-logos/opencode.svg"><span>OPENCODE</span></div>
+      <div class="agent"><div class="shell">&gt;_</div><span>SHELL</span></div>
     </div>
   </div>
   <div class="frieze bot">𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹𓌀𓊽𓋹</div>
