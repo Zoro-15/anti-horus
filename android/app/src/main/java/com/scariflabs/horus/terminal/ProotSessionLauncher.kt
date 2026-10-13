@@ -361,6 +361,10 @@ class ProotSessionLauncher(
       add("DOTNET_gcServer=0")
       add("DOTNET_GCHeapHardLimit=0x40000000")
       add("DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER=1")
+      // SDK server opt-out and Roslyn shared compilation are separate knobs.
+      // A detached VBCSCompiler otherwise keeps PRoot alive after shell exit.
+      add("DOTNET_CLI_USE_MSBUILD_SERVER=0")
+      add("UseSharedCompilation=false")
       add("TZ=${GuestTimeZone.forGuest(rootfsDir)}")
       addAll(downloadSources.guestEnvironment())
     }
@@ -1102,6 +1106,8 @@ class ProotSessionLauncher(
       export DOTNET_gcServer="${'$'}{DOTNET_gcServer:-0}"
       export DOTNET_GCHeapHardLimit="${'$'}{DOTNET_GCHeapHardLimit:-0x40000000}"
       export DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER="${'$'}{DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER:-1}"
+      export DOTNET_CLI_USE_MSBUILD_SERVER="${'$'}{DOTNET_CLI_USE_MSBUILD_SERVER:-0}"
+      export UseSharedCompilation="${'$'}{UseSharedCompilation:-false}"
     """.trimIndent()
     private val ZSHRC_BLOCK = """
       $ZSHRC_BEGIN

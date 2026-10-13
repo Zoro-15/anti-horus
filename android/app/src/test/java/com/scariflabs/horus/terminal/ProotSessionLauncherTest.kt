@@ -136,6 +136,8 @@ class ProotSessionLauncherTest {
       assertTrue(launch.environment.contains("DOTNET_gcServer=0"))
       assertTrue(launch.environment.contains("DOTNET_GCHeapHardLimit=0x40000000"))
       assertTrue(launch.environment.contains("DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER=1"))
+      assertTrue(launch.environment.contains("DOTNET_CLI_USE_MSBUILD_SERVER=0"))
+      assertTrue(launch.environment.contains("UseSharedCompilation=false"))
       assertTrue(launch.environment.contains("PROOT_NO_SECCOMP=1"))
       assertTrue(launch.environment.contains("PATH=${ProotSessionLauncher.GUEST_PATH}"))
       assertFalse(launch.argv.any { it.endsWith(":${ProotSessionLauncher.GUEST_PROC}/meminfo") && it.contains("proc-compat") })
