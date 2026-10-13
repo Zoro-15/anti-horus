@@ -163,4 +163,10 @@ class TerminalSessionServiceDeviceTest {
     val descriptor = instrumentation.uiAutomation.executeShellCommand(command)
     return ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes().toString(Charsets.UTF_8) }
   }
+
+  companion object {
+    @JvmStatic
+    @org.junit.BeforeClass
+    fun prepareIsolatedGuest() = DeviceTestGuest.ensureInstalled()
+  }
 }

@@ -388,6 +388,9 @@ class ProotSeccompProbeDeviceTest {
   private fun elapsedMs(startNanos: Long) = (System.nanoTime() - startNanos) / 1_000_000
 
   private companion object {
+    @JvmStatic
+    @org.junit.BeforeClass
+    fun prepareIsolatedGuest() = DeviceTestGuest.ensureInstalled()
     const val LOG_TAG = "SeccompProbe"
     const val POLL_MS = 10L
     const val SHELL_OPEN_TIMEOUT_MS = 45_000L

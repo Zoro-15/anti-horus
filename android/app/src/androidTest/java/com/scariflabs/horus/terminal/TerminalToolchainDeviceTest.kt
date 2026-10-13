@@ -78,7 +78,7 @@ class TerminalToolchainDeviceTest {
       paths = paths,
       downloader = HttpArchiveDownloader(),
       extractor = SafeTarGzExtractor(),
-      prober = ProotGuestProber(runtime, File(paths.sessions, ".proot-scratch")),
+      prober = ProotGuestProber(runtime, paths.guestTmp),
     )
     val sink = OutputSink()
     val listener = DeviceListener(sink)
@@ -95,7 +95,7 @@ class TerminalToolchainDeviceTest {
     android.util.Log.i(LOG_TAG, "P5_DNS_HOST=${dnsServers.joinToString(",")}")
     val launcher = ProotSessionLauncher(
       runtime = runtime,
-      scratchDir = File(paths.sessions, ".proot-scratch"),
+      scratchDir = paths.guestTmp,
       dnsServersProvider = { dnsServers },
     )
     listener.acknowledge = { sessionId, seq -> supervisor.acknowledgeOutput(sessionId, seq) }
@@ -246,7 +246,7 @@ class TerminalToolchainDeviceTest {
       paths = paths,
       downloader = HttpArchiveDownloader(),
       extractor = SafeTarGzExtractor(),
-      prober = ProotGuestProber(runtime, File(paths.sessions, ".proot-scratch")),
+      prober = ProotGuestProber(runtime, paths.guestTmp),
     )
     val dnsServers = targetContext.getSystemService(ConnectivityManager::class.java).activeNetwork
       ?.let { targetContext.getSystemService(ConnectivityManager::class.java).getLinkProperties(it)?.dnsServers }
@@ -254,7 +254,7 @@ class TerminalToolchainDeviceTest {
       .orEmpty()
     val launcher = ProotSessionLauncher(
       runtime = runtime,
-      scratchDir = File(paths.sessions, ".proot-scratch"),
+      scratchDir = paths.guestTmp,
       dnsServersProvider = { dnsServers },
     )
 
@@ -317,7 +317,7 @@ class TerminalToolchainDeviceTest {
       paths = paths,
       downloader = HttpArchiveDownloader(),
       extractor = SafeTarGzExtractor(),
-      prober = ProotGuestProber(runtime, File(paths.sessions, ".proot-scratch")),
+      prober = ProotGuestProber(runtime, paths.guestTmp),
     )
     val dnsServers = targetContext.getSystemService(ConnectivityManager::class.java).activeNetwork
       ?.let { targetContext.getSystemService(ConnectivityManager::class.java).getLinkProperties(it)?.dnsServers }
@@ -325,7 +325,7 @@ class TerminalToolchainDeviceTest {
       .orEmpty()
     val launcher = ProotSessionLauncher(
       runtime = runtime,
-      scratchDir = File(paths.sessions, ".proot-scratch"),
+      scratchDir = paths.guestTmp,
       dnsServersProvider = { dnsServers },
     )
     val targets = listOf(

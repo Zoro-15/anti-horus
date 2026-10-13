@@ -44,7 +44,7 @@ class TerminalRuntimeDeviceTest {
       paths = paths,
       downloader = HttpArchiveDownloader(),
       extractor = SafeTarGzExtractor(),
-      prober = ProotGuestProber(runtime, File(paths.sessions, ".proot-scratch")),
+      prober = ProotGuestProber(runtime, paths.guestTmp),
     )
     val expectedMarkers = listOf(
       AlpineRootfsCatalog.ProbeMarkers.BEGIN,
