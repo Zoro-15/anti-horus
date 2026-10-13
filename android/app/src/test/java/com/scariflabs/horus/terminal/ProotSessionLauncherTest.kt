@@ -315,7 +315,7 @@ class ProotSessionLauncherTest {
       assertTrue(launch.argv.last().contains("claude_failed"))
       assertTrue(launch.argv.last().contains("head -n 1"))
       assertTrue(launch.argv.last().contains("npm install --global --force"))
-      assertTrue(launch.argv.last().contains("--no-progress --loglevel=error @openai/codex"))
+      assertTrue(launch.argv.last().contains("--include=optional --no-package-lock --no-audit --no-fund --no-progress --loglevel=error @openai/codex"))
       assertTrue(launch.argv.last().contains("--no-progress --loglevel=error opencode-ai"))
       assertTrue(launch.argv.last().contains("stat -L -c '%s:%Y:%i:%d'"))
       assertTrue(launch.argv.last().contains("curl --connect-timeout 15 --max-time 300 -fsSL"))
@@ -989,7 +989,103 @@ class ProotSessionLauncherTest {
       assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
       ps.delete()
       ps.writeText("procps")
+      assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
+      val native = File(home, ".local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex")
+      requireNotNull(native.parentFile).mkdirs()
+      File(home, ".local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/package.json").writeText("{}")
+      native.writeText("broken")
+      native.setExecutable(true)
+      assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
+      val header = ByteArray(64)
+      header[0] = 0x7f; header[1] = 0x45; header[2] = 0x4c; header[3] = 0x46
+      header[4] = 2; header[5] = 1; header[18] = 0xb7.toByte()
+      native.writeBytes(header)
+      val marker = File(home, ".cache/horus/codex.ready")
+      // A legacy marker never proves the native binary was run successfully.
+      assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
+      marker.writeText("ready:${launcher.codexPayloadStamp(home)}\n")
       assertTrue(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
+      native.appendBytes(byteArrayOf(0))
+      assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
+      native.delete()
+      assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
+    } finally {
+      base.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun repairsMissingCodexOptionalAliasAndRejectsUnusableNativeWithoutTouchingUserData() {
+    val base = Files.createTempDirectory("horus-codex-recovery").toFile()
+    try {
+      val bin = File(base, "bin").apply { mkdirs() }
+      val fixture = File(base, "fixture").apply { mkdirs() }
+      File(fixture, "package.json").writeText("""{"optionalDependencies":{"@openai/codex-linux-arm64":"npm:@openai/codex@0.115.0-linux-arm64"}}""")
+      File(fixture, "codex.js").writeText("""
+        #!/usr/bin/env node
+        const path = require('path');
+        const p = require.resolve('@openai/codex-linux-arm64/package.json', {paths: [__dirname]});
+        const binary = path.join(path.dirname(p), 'vendor/aarch64-unknown-linux-musl/bin/codex');
+        process.exit(require('child_process').spawnSync(binary, ['--version']).status ?? 1);
+      """.trimIndent())
+      File(bin, "npm").apply {
+        writeText("""
+          #!/bin/sh
+          printf '%s\n' "${'$'}*" >> "${'$'}HOME/npm-args"
+          for last; do :; done
+          root="${'$'}HOME/.local/lib/node_modules/@openai"
+          case "${'$'}last" in
+            @openai/codex)
+              mkdir -p "${'$'}root/codex/bin"
+              cp "${'$'}FIXTURE/package.json" "${'$'}root/codex/package.json"
+              cp "${'$'}FIXTURE/codex.js" "${'$'}root/codex/bin/codex.js"
+              ;;
+            @openai/codex-linux-arm64@npm:@openai/codex@0.115.0-linux-arm64)
+              native="${'$'}root/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex"
+              mkdir -p "${'$'}(dirname "${'$'}native")"
+              printf '{}' > "${'$'}root/codex-linux-arm64/package.json"
+              printf '#!/bin/sh\nexit %s\n' "${'$'}NATIVE_EXIT" > "${'$'}native"
+              chmod 755 "${'$'}native"
+              ;;
+            *) exit 99 ;;
+          esac
+        """.trimIndent())
+        setExecutable(true)
+      }
+      File(bin, "stat").apply {
+        writeText("#!/bin/sh\ntest \"${'$'}1\" = -L && test \"${'$'}2\" = -c || exit 99\nprintf '64:1:2:3\\n'\n")
+        setExecutable(true)
+      }
+      val node = requireNotNull(System.getenv("PATH")).split(File.pathSeparator)
+        .map { File(it, "node") }.first { it.isFile && it.canExecute() }
+      for (exit in listOf(0, 127)) {
+        val home = File(base, "home-$exit").apply { mkdirs() }
+        val auth = File(home, ".codex/auth.json").apply {
+          requireNotNull(parentFile).mkdirs(); writeText("private credentials")
+        }
+        val config = File(home, ".codex/config.toml").apply { writeText("user config") }
+        val process = ProcessBuilder("/bin/sh", "-c",
+          ProotSessionLauncher.CODEX_INSTALL_SCRIPT.replace("/usr/bin/node", node.absolutePath) +
+            "\ninstall_codex_package\n")
+          .redirectErrorStream(true)
+        process.environment().putAll(mapOf(
+          "HOME" to home.absolutePath,
+          "PATH" to "${bin.absolutePath}:${System.getenv("PATH")}",
+          "FIXTURE" to fixture.absolutePath,
+          "NATIVE_EXIT" to exit.toString(),
+          "npm_config_omit" to "optional",
+        ))
+        val running = process.start()
+        val output = running.inputStream.bufferedReader().readText()
+        val result = running.waitFor()
+        if (exit == 0) assertEquals(output, 0, result) else assertTrue(output, result != 0)
+        val args = File(home, "npm-args").readLines()
+        assertEquals(2, args.size)
+        assertTrue(args.all { it.contains("--include=optional") })
+        assertTrue(args.last().endsWith("@openai/codex-linux-arm64@npm:@openai/codex@0.115.0-linux-arm64"))
+        assertEquals("private credentials", auth.readText())
+        assertEquals("user config", config.readText())
+      }
     } finally {
       base.deleteRecursively()
     }
