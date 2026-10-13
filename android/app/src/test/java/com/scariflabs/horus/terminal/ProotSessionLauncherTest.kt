@@ -15,20 +15,23 @@ class ProotSessionLauncherTest {
   fun interactiveZshExitAndEofNormalizeBuildFailuresButPreserveKillsAndCommandStatus() {
     val zsh = System.getenv("HORUS_TEST_ZSH") ?: "/usr/bin/zsh"
     org.junit.Assume.assumeTrue("zsh required for shell behavior test", File(zsh).canExecute())
-    fun status(commands: String, interactive: Boolean): Int {
+    fun checkStatus(expected: Int, commands: String, interactive: Boolean) {
       val process = ProcessBuilder(zsh, if (interactive) "-dfi" else "-df")
         .redirectErrorStream(true).start()
       process.outputStream.bufferedWriter().use {
+        // Startup files accept comments; enable them for the stdin fixture too.
+        if (interactive) it.write("setopt interactivecomments\n")
         it.write(ProotSessionLauncher.ZSH_EXIT_SCRIPT + "\n" + commands)
       }
       assertTrue("zsh fixture timed out", process.waitFor(10, TimeUnit.SECONDS))
-      return process.exitValue()
+      val output = process.inputStream.bufferedReader().readText()
+      assertEquals("commands=$commands\n$output", expected, process.exitValue())
     }
-    assertEquals(0, status("false\nexit\n", true))
-    assertEquals(0, status("false\n", true))
-    assertEquals(137, status("exit 137\n", true))
-    assertEquals(137, status("kill -KILL ${'$'}${'$'}\n", true))
-    assertEquals(23, status("exit 23\n", false))
+    checkStatus(0, "false\nexit\n", true)
+    checkStatus(0, "false\n", true)
+    checkStatus(137, "exit 137\n", true)
+    checkStatus(137, "kill -KILL ${'$'}${'$'}\n", true)
+    checkStatus(23, "exit 23\n", false)
   }
 
   @Test
