@@ -549,3 +549,74 @@ index ec74950..7fea3ad 100644
  }
  
  /**
+diff --git a/src/tracee/event.c b/src/tracee/event.c
+index df953ee..85187e5 100644
+--- a/src/tracee/event.c
++++ b/src/tracee/event.c
+@@ -249,7 +249,9 @@ static void print_talloc_hierarchy(int signum, siginfo_t *siginfo UNUSED, void *
+ 	}
+ }
+ 
+-static int last_exit_status = -1;
++#include "tracee/exit_status.h"
++
++static ProotExitStatus exit_status = { -1, -1 };
+ 
+ /**
+  * Check if this instance of PRoot can *technically* handle @tracee.
+@@ -433,7 +435,7 @@ int event_loop()
+ 		(void) restart_tracee(tracee, signal);
+ 	}
+ 
+-	return last_exit_status;
++	return get_proot_exit_status(&exit_status);
+ }
+ 
+ /**
+@@ -477,11 +479,11 @@ int handle_tracee_event(Tracee *tracee, int tracee_status)
+ 	/* Not a signal-stop by default.  */
+ 	signal = 0;
+ 
++	record_proot_exit_status(&exit_status, tracee->vpid, tracee_status);
+ 	if (WIFEXITED(tracee_status)) {
+-		last_exit_status = WEXITSTATUS(tracee_status);
+ 		VERBOSE(tracee, 1,
+ 			"vpid %" PRIu64 ": exited with status %d",
+-			tracee->vpid, last_exit_status);
++			tracee->vpid, WEXITSTATUS(tracee_status));
+ 		terminate_tracee(tracee);
+ 	}
+ 	else if (WIFSIGNALED(tracee_status)) {
+diff --git a/src/tracee/exit_status.h b/src/tracee/exit_status.h
+new file mode 100644
+index 0000000..b19d8f9
+--- /dev/null
++++ b/src/tracee/exit_status.h
+@@ -0,0 +1,27 @@
++/* Preserve the initial guest process status independently of helper children. */
++#ifndef PROOT_EXIT_STATUS_H
++#define PROOT_EXIT_STATUS_H
++#include <stdint.h>
++#include <sys/wait.h>
++
++typedef struct {
++    int last_child;
++    int initial_guest;
++} ProotExitStatus;
++
++static inline void record_proot_exit_status(ProotExitStatus *state, uint64_t vpid, int status)
++{
++    if (WIFEXITED(status)) {
++        state->last_child = WEXITSTATUS(status);
++        if (vpid == 1)
++            state->initial_guest = state->last_child;
++    } else if (WIFSIGNALED(status) && vpid == 1) {
++        state->initial_guest = 128 + WTERMSIG(status);
++    }
++}
++
++static inline int get_proot_exit_status(const ProotExitStatus *state)
++{
++    return state->initial_guest >= 0 ? state->initial_guest : state->last_child;
++}
++#endif

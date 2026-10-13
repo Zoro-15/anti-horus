@@ -10,3 +10,6 @@ git -C "$test_dir" apply --recount "$repo_root/native/patches/proot-android.patc
   -DSOCKET_SOURCE="\"$test_dir/src/syscall/socket.c\"" \
   "$repo_root/native/tests/unix_socket_translation_test.c" -o "$test_dir/test"
 "$test_dir/test"
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror -I"$test_dir/src" \
+  "$repo_root/native/tests/proot_exit_status_test.c" -o "$test_dir/exit-test"
+"$test_dir/exit-test"
