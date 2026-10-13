@@ -1550,7 +1550,11 @@ EOF
           mark_provision_stage codex_failed
           exit 23
         fi
-        codex_payload_stamp=${'$'}(codex_stamp)
+        if ! codex_payload_stamp=${'$'}(codex_stamp); then
+          rm -f "${'$'}target_marker"
+          mark_provision_stage codex_failed
+          exit 23
+        fi
       else
         test -x /root/.local/bin/opencode
       fi
@@ -1612,6 +1616,8 @@ EOF
         exec /bin/sh -c "${'$'}HORUS_SESSION_COMMAND"
       ' "${'$'}session_username"
     """.trimIndent()
+    // The embedded Codex script supplies its own indent, including its first
+    // line, so the outer trimIndent() keeps heredoc terminators at column zero.
     private val REMOTE_ACCESS_SCRIPT = """
       set -eu
       user="${'$'}1"
@@ -1707,7 +1713,7 @@ EOF
           printf '#!/bin/sh\nexec %s "%s" "$@"\n' "${'$'}1" "${'$'}2" > "${'$'}launcher" &&
           chmod 755 "${'$'}launcher"
       }
-      $CODEX_INSTALL_SCRIPT
+${CODEX_INSTALL_SCRIPT.prependIndent("      ")}
       install_codex() {
         entry="${'$'}HOME/.local/lib/node_modules/@openai/codex/bin/codex.js"
         apk add --no-cache --no-progress bash ca-certificates git nodejs npm libgcc libstdc++ &&
