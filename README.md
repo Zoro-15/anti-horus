@@ -9,6 +9,7 @@
 No root. No Termux. Open source.
 
 <a href="https://f-droid.org/packages/com.scariflabs.horus/"><img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" height="80" alt="Get it on F-Droid"></a>
+<a href="https://github.com/scarif-labs/horus/releases/latest"><img src="docs/readme/get-apk-on-github.png" height="80" alt="Get the APK on GitHub"></a>
 
 [![F-Droid](https://img.shields.io/f-droid/v/com.scariflabs.horus?label=F-Droid&color=80EB12&labelColor=0b0f0e)](https://f-droid.org/packages/com.scariflabs.horus/)
 [![GitHub release](https://img.shields.io/github/v/release/scarif-labs/horus?filter=v*&label=APK&color=80EB12&labelColor=0b0f0e)](https://github.com/scarif-labs/horus/releases/latest)
