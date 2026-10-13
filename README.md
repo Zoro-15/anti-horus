@@ -1,6 +1,6 @@
 <div align="center">
 
-<p><img src="docs/readme/banner.png" width="880" alt="Horus: the Eye of Horus above the name HORUS and the Claude Code, Codex, OpenCode, and shell marks, framed by friezes of ankh, djed, and was hieroglyphs"></p>
+<p><img src="docs/readme/banner.png" width="880" alt="Horus: the Eye of Horus above the name HORUS and the Claude Code, Codex, OpenCode, and shell marks"></p>
 
 <br>
 
