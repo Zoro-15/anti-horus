@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/readme/banner.png" width="880" alt="Horus: the Eye of Horus above the name HORUS, framed by friezes of ankh, djed, and was hieroglyphs">
+<p><img src="docs/readme/banner.png" width="880" alt="Horus: the Eye of Horus above the name HORUS, framed by friezes of ankh, djed, and was hieroglyphs"></p>
 
 <br>
 
