@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="fastlane/metadata/android/en-US/images/icon.png" width="112" alt="Horus icon">
+<img src="docs/readme/banner.png" width="880" alt="Horus: the Eye of Horus above the name HORUS, framed by friezes of ankh, djed, and was hieroglyphs">
 
-# Horus
+<br>
 
 **Claude Code, Codex, and OpenCode in a real Linux terminal on your Android phone.**
 
@@ -12,7 +12,7 @@ No root. No Termux. Open source.
 
 [![F-Droid](https://img.shields.io/f-droid/v/com.scariflabs.horus?label=F-Droid&color=80EB12&labelColor=0b0f0e)](https://f-droid.org/packages/com.scariflabs.horus/)
 [![GitHub release](https://img.shields.io/github/v/release/scarif-labs/horus?filter=v*&label=APK&color=80EB12&labelColor=0b0f0e)](https://github.com/scarif-labs/horus/releases/latest)
-[![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B%20·%20arm64-80EB12?labelColor=0b0f0e)](#install)
+[![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B%20·%20arm64-80EB12?labelColor=0b0f0e)](https://f-droid.org/packages/com.scariflabs.horus/)
 [![MIT license](https://img.shields.io/badge/license-MIT-80EB12?labelColor=0b0f0e)](LICENSE)
 
 [Website](https://scariflabs.com/horus) · [Docs](https://scariflabs.com/horus/docs) · [CLI](cli/README.md) · [Issues](https://github.com/scarif-labs/horus/issues)
@@ -37,7 +37,9 @@ For the launch demo, Claude Code downloaded a film, installed ffmpeg, and cut
 a trailer, while Codex trained a neural network from scratch to 97.97% on
 MNIST. Both ran on a budget phone from 2021.
 
-## Install
+<p align="center">𓋹 &nbsp; 𓊽 &nbsp; 𓌀 &nbsp; 𓂀 &nbsp; 𓌀 &nbsp; 𓊽 &nbsp; 𓋹</p>
+
+## 𓂻 Install
 
 1. **Get the app** from [F-Droid](https://f-droid.org/packages/com.scariflabs.horus/),
    or download the APK from [GitHub Releases](https://github.com/scarif-labs/horus/releases/latest).
@@ -51,13 +53,13 @@ MNIST. Both ran on a budget phone from 2021.
 You need an ARM64 phone on Android 7.0 or newer. New to all this? The
 [beginner's guide](https://scariflabs.com/horus/docs) starts from zero.
 
-## What you get
+## 𓋹 What you get
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-### 🐧 A real Linux box
+### 𓉐 A real Linux box
 Alpine Linux in app storage, checked against a pinned SHA-256 before it's
 unpacked. `git`, `curl`, `jq`, `rg`, `python3`, and Node arrive when you first
 need them, and `apk add` gets you the rest.
@@ -65,7 +67,7 @@ need them, and `apk add` gets you the rest.
 </td>
 <td width="50%" valign="top">
 
-### 🤖 Agents in one tap
+### 𓁟 Agents in one tap
 Claude Code, Codex, and OpenCode each install into their own home the first
 time you open them, with the installer output right there in the terminal.
 
@@ -74,7 +76,7 @@ time you open them, with the installer output right there in the terminal.
 <tr>
 <td valign="top">
 
-### ⌨️ A terminal that behaves
+### 𓏞 A terminal that behaves
 Native PTY and renderer with resize, Ctrl‑C, and job control. The key bar
 adds Esc, Tab, arrows, and sticky Ctrl/Alt for everything a phone keyboard
 leaves out.
@@ -82,7 +84,7 @@ leaves out.
 </td>
 <td valign="top">
 
-### 🔋 Sessions that outlive the app
+### 𓊽 Sessions that outlive the app
 Terminals run in a foreground service in their own process. Switch apps, lock
 the phone, let Android kill the UI; the agent keeps going and notifies you
 when it's waiting on you.
@@ -92,7 +94,7 @@ when it's waiting on you.
 <tr>
 <td valign="top">
 
-### 📁 Projects and GitHub
+### 𓊖 Projects and GitHub
 Make a folder, clone any HTTPS or SSH URL, or pick from your GitHub repos
 after a device login in the browser. Everything lives in `/workspace/projects`,
 and a read-only file browser previews it and copies folders to Downloads.
@@ -100,7 +102,7 @@ and a read-only file browser previews it and copies folders to Downloads.
 </td>
 <td valign="top">
 
-### 🔒 Private by default
+### 𓂀 Private by default
 No analytics, ads, crash reporting, or Google services. A password locks the
 app after 15 minutes in the background, and Horus never touches your agent
 credentials.
@@ -109,7 +111,7 @@ credentials.
 </tr>
 </table>
 
-## Use it from your computer (optional)
+## 𓊝 Use it from your computer (optional)
 
 Horus works fully on the phone. If you also want to treat it like a small
 cloud VM, plug it in over USB and use the [`horus` CLI](cli/README.md) for
@@ -128,7 +130,7 @@ root is refused, and pairing needs your Horus password. **Settings → Remote
 access** turns it off and lists paired computers you can revoke. The
 [CLI guide](https://scariflabs.com/horus/docs/cli) covers setup from scratch.
 
-## How it works
+## 𓇳 How it works
 
 ```
 React Native UI (App.tsx, src/)
@@ -147,7 +149,7 @@ terminal_pty.c (JNI) ── PRoot (native/, built from source) ── Alpine roo
 Each agent runs as its own guest user (UIDs 61001–61003) with a private home,
 and they all share workspace GID 1000 so they can work on the same projects.
 
-## Security notes
+## 𓅃 Security notes
 
 Android's app sandbox is the only real security boundary. PRoot emulates user
 IDs but gives no kernel isolation between agent users, so don't run code you
@@ -161,7 +163,7 @@ Remote access stays off until you pair a computer or turn it on. Any app on
 the phone can reach loopback ports, so the paired key is what keeps others
 out.
 
-## For developers
+## 𓏛 For developers
 
 <details>
 <summary><b>Build from source</b></summary>
@@ -292,19 +294,7 @@ opened.
 
 </details>
 
-## Community
-
-Ask setup and troubleshooting questions in
-[Q&A](https://github.com/scarif-labs/horus/discussions/categories/q-a),
-propose improvements in
-[Ideas](https://github.com/scarif-labs/horus/discussions/categories/ideas),
-or share a workflow in
-[Show and tell](https://github.com/scarif-labs/horus/discussions/categories/show-and-tell).
-Use [Issues](https://github.com/scarif-labs/horus/issues) for reproducible bugs.
-
-See [Contributing](CONTRIBUTING.md) for reporting and pull request guidance,
-our [Code of Conduct](.github/CODE_OF_CONDUCT.md) for participation standards,
-and the [security policy](.github/SECURITY.md) before reporting a vulnerability.
+<p align="center">𓋹 &nbsp; 𓊽 &nbsp; 𓌀 &nbsp; 𓂀 &nbsp; 𓌀 &nbsp; 𓊽 &nbsp; 𓋹</p>
 
 ## License
 
@@ -314,5 +304,5 @@ libandroid-shmem, fonts, agent marks) are listed with their licenses in
 
 <div align="center">
 <br>
-<sub>Made by <a href="https://scariflabs.com">Scarif Labs</a></sub>
+<sub>𓆣 &nbsp;Made by <a href="https://scariflabs.com">Scarif Labs</a></sub>
 </div>
