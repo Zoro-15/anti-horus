@@ -100,4 +100,19 @@ object TerminalSessionContract {
   }
 
   data class ExitStatus(val exitCode: Int?, val signal: String?)
+
+  enum class AppExitKind { CLOSED, COMMAND_FAILED, INTERRUPTED, UNEXPECTED }
+
+  /** Exit presentation policy mirrored in AppExitedOverlay for the React surface. */
+  fun appExitKind(toolchain: String, status: ExitStatus, output: String): AppExitKind {
+    if (status.signal == null && (status.exitCode == null || status.exitCode == 0)) return AppExitKind.CLOSED
+    if (toolchain == "github" && (status.signal == "sigint" || (status.signal == null && status.exitCode == 130))) {
+      return AppExitKind.INTERRUPTED
+    }
+    if (status.signal != null || status.exitCode == null || status.exitCode > 128) return AppExitKind.UNEXPECTED
+    if (Regex("panic:|fatal error:|unexpected escape sequence", RegexOption.IGNORE_CASE).containsMatchIn(output) ||
+      (output.contains("proot error:", ignoreCase = true) && !output.contains("no space left on device", ignoreCase = true))
+    ) return AppExitKind.UNEXPECTED
+    return if (toolchain == "github" || toolchain == "shell") AppExitKind.COMMAND_FAILED else AppExitKind.UNEXPECTED
+  }
 }

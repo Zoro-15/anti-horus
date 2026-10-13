@@ -4,6 +4,33 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ExitScreenTextTest {
+  @Test
+  fun `ordinary github failures remain command errors after terminal soft wrapping`() {
+    for (message in listOf("HTTP 401: Bad credentials", "? Hostname: invalid-host", "Cloning into '/workspace/project'...",
+      "proot error: can't create temporary file: No space left on device")) {
+      val columns = 16
+      val text = exitScreenText(message.chunked(columns).map { row(it, columns) }, maxLines = 40)
+      assertEquals(TerminalSessionContract.AppExitKind.COMMAND_FAILED,
+        TerminalSessionContract.appExitKind("github", TerminalSessionContract.ExitStatus(1, null), text))
+    }
+    assertEquals(TerminalSessionContract.AppExitKind.INTERRUPTED,
+      TerminalSessionContract.appExitKind("github", TerminalSessionContract.ExitStatus(130, null), "Cloning into 'project'..."))
+  }
+
+  @Test
+  fun `signals and runtime faults retain unexpected classification`() {
+    for (status in listOf(TerminalSessionContract.ExitStatus(null, "sigkill"), TerminalSessionContract.ExitStatus(137, null))) {
+      assertEquals(TerminalSessionContract.AppExitKind.UNEXPECTED,
+        TerminalSessionContract.appExitKind("shell", status, "build failed"))
+    }
+    for (message in listOf("panic: bad state", "proot error: ptrace failed", "unexpected escape sequence")) {
+      assertEquals(TerminalSessionContract.AppExitKind.UNEXPECTED,
+        TerminalSessionContract.appExitKind("github", TerminalSessionContract.ExitStatus(1, null), message))
+    }
+    assertEquals(TerminalSessionContract.AppExitKind.CLOSED,
+      TerminalSessionContract.appExitKind("shell", TerminalSessionContract.ExitStatus(0, null), "build failed\nexit"))
+  }
+
   private fun row(text: String, columns: Int = text.length): Array<String> =
     Array(columns) { index -> text.getOrNull(index)?.toString() ?: " " }
 
