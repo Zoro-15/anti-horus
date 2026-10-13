@@ -56,34 +56,55 @@ You need an ARM64 phone on Android 7.0 or newer. New to all this? The
 
 ## 𓋹 What you get
 
+<table>
+<tr><td>
+
 ### 𓉐 A real Linux box
 Alpine Linux in app storage, checked against a pinned SHA-256 before it's
 unpacked. `git`, `curl`, `jq`, `rg`, `python3`, and Node arrive when you first
 need them, and `apk add` gets you the rest.
 
+</td></tr>
+<tr><td>
+
 ### 𓁟 Agents in one tap
 Claude Code, Codex, and OpenCode each install into their own home the first
 time you open them, with the installer output right there in the terminal.
+
+</td></tr>
+<tr><td>
 
 ### 𓏞 A terminal that behaves
 Native PTY and renderer with resize, Ctrl‑C, and job control. The key bar
 adds Esc, Tab, arrows, and sticky Ctrl/Alt for everything a phone keyboard
 leaves out.
 
+</td></tr>
+<tr><td>
+
 ### 𓊽 Sessions that outlive the app
 Terminals run in a foreground service in their own process. Switch apps, lock
 the phone, let Android kill the UI; the agent keeps going and notifies you
 when it's waiting on you.
+
+</td></tr>
+<tr><td>
 
 ### 𓊖 Projects and GitHub
 Make a folder, clone any HTTPS or SSH URL, or pick from your GitHub repos
 after a device login in the browser. Everything lives in `/workspace/projects`,
 and a read-only file browser previews it and copies folders to Downloads.
 
+</td></tr>
+<tr><td>
+
 ### 𓂀 Private by default
 No analytics, ads, crash reporting, or Google services. A password locks the
 app after 15 minutes in the background, and Horus never touches your agent
 credentials.
+
+</td></tr>
+</table>
 
 ## 𓊝 Use it from your computer (optional)
 
