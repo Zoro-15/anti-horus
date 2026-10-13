@@ -104,7 +104,7 @@ function controlCharacter(character: string): string {
 function applyTerminalModifiers(value: string, ctrl: boolean, alt: boolean): string {
   return Array.from(value).map(character => {
     const modified = ctrl ? controlCharacter(character) : character;
-    return alt ? `\u001b${modified}` : modified;
+    return alt && character !== '\t' && character !== '\u001b' ? `\u001b${modified}` : modified;
   }).join('');
 }
 
@@ -855,9 +855,9 @@ export function TerminalScreen({client: providedClient, runtime = undefined, onB
     });
   }, [keyboardVisible, nativeTerminalInput, running]);
 
-  const sendTerminalKey = React.useCallback((value: string) => {
+  const sendTerminalKey = React.useCallback((value: string, applyModifiers = true) => {
     clearKeyboardInput();
-    void write(applyOneShotModifiers(value, ctrlActive, altActive));
+    void write(applyModifiers ? applyOneShotModifiers(value, ctrlActive, altActive) : value);
     releaseModifiers();
   }, [altActive, clearKeyboardInput, ctrlActive, releaseModifiers, write]);
 

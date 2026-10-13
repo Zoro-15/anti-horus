@@ -101,7 +101,7 @@ export type TerminalControlsProps = Readonly<{
   onKeyboardToggle: () => void;
   onPaste: () => void;
   onReturn: () => void;
-  onTerminalKey: (value: string) => void;
+  onTerminalKey: (value: string, applyModifiers?: boolean) => void;
   onToggleAlt: () => void;
   onToggleCtrl: () => void;
   onToggleTranscriptPager: () => void;
@@ -137,7 +137,7 @@ export const TerminalControls = React.memo(function TerminalControlsView({altAct
         </View>
         <View style={styles.controlRow}>
           <View style={styles.controlRowMain}>
-            <TerminalToolbarButton accessibilityLabel="Tab" disabled={!running} label="TAB" onPress={() => onTerminalKey('\t')} testID="terminal-key-tab" />
+            <TerminalToolbarButton accessibilityLabel="Tab" disabled={!running} label="TAB" onPress={() => onTerminalKey('\t', false)} testID="terminal-key-tab" />
             <TerminalToolbarButton accessibilityLabel="Control modifier" active={ctrlActive} disabled={!running} label="CTRL" onPress={onToggleCtrl} testID="terminal-key-ctrl" />
             <TerminalToolbarButton accessibilityLabel="Alt modifier" active={altActive} disabled={!running} label="ALT" onPress={onToggleAlt} testID="terminal-key-alt" />
             <TerminalToolbarButton accessibilityLabel="Arrow left" disabled={!running} label="←" onPress={() => onArrow('D')} testID="terminal-key-arrow-left" />

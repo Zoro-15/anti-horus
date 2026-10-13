@@ -11,6 +11,14 @@ import org.junit.Test
 import java.lang.reflect.Proxy
 
 class TerminalInputViewTest {
+  @Test
+  fun `tab stays a single byte with all one-shot modifier combinations`() {
+    for (ctrl in listOf(false, true)) for (alt in listOf(false, true)) {
+      assertEquals("\t", applyTerminalInputModifiers("\t", ctrl, alt))
+      assertEquals("\tx", applyOneShotTerminalModifiers("\tx", ctrl, alt))
+    }
+    assertEquals("\u001b", applyTerminalInputModifiers("\u001b", false, true))
+  }
 
   @Test
   fun `native input maps control and alt modifiers`() {
