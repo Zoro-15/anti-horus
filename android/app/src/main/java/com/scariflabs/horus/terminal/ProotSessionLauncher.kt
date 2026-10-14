@@ -37,6 +37,7 @@ class ProotSessionLauncher(
   private val seccompAcceleration: Boolean = false,
   /** Alpine mirror and npm registry for package installs inside the guest. */
   private val downloadSources: DownloadSources = DownloadSources(),
+  private val hardlinkDir: File = File(scratchDir.absoluteFile.parentFile, "l"),
 ) {
 
   data class LaunchSpec(
@@ -239,6 +240,10 @@ class ProotSessionLauncher(
     }
     require(!Files.isSymbolicLink(scratchDir.toPath())) { "proot scratch directory is a symbolic link" }
     DistroStoreCore.pruneProotTemps(scratchDir, hostProcDir)
+    require(!Files.isSymbolicLink(hardlinkDir.toPath())) { "proot hardlink directory is a symbolic link" }
+    if (!hardlinkDir.isDirectory && !hardlinkDir.mkdirs() && !hardlinkDir.isDirectory) {
+      throw IllegalStateException("cannot create proot hardlink directory")
+    }
     prepareResolverFile(rootfsDir)
     prepareCodexProfile(guestHomeDir)
     when (toolchainTarget) {
@@ -306,6 +311,10 @@ class ProotSessionLauncher(
       }
       add("-b")
       add("${scratchDir.canonicalPath}:/tmp")
+      // Emulated links contain absolute host backing paths. Map only this
+      // backing directory at the same path so apk/Node can stat those links.
+      add("-b")
+      add("${hardlinkDir.canonicalPath}:${hardlinkDir.canonicalPath}")
       deviceBinds.forEach { bind ->
         add("-b")
         add("${bind.source.canonicalFile.absolutePath}:${bind.guestPath}")
@@ -332,6 +341,9 @@ class ProotSessionLauncher(
       add("PROOT_LOADER=${runtime.loaderBin.absolutePath}")
       add("PROOT_LOADER_32=${runtime.loaderBin.absolutePath}")
       add("PROOT_TMP_DIR=${scratchDir.canonicalFile.absolutePath}")
+      // Backing files beside the source keep a package directory nonempty
+      // while another alias still exists. Keep them outside replaceable trees.
+      add("PROOT_L2S_DIR=${hardlinkDir.canonicalPath}")
       // Keep the stable ptrace path on the supported Android API. PRoot's
       // seccomp acceleration crashes this device before the guest shell opens.
       if (!seccompAcceleration) add("PROOT_NO_SECCOMP=1")
@@ -1475,7 +1487,7 @@ ${ZSH_EXIT_SCRIPT.prependIndent("      ")}
         if [ ! -f "${'$'}opencode_entry" ]; then
           opencode_entry=/root/.local/lib/node_modules/opencode-ai/bin/opencode.exe
         fi
-        if ! { test -f "${'$'}opencode_entry" && { [ -x "${'$'}opencode_entry" ] || chmod u+rx "${'$'}opencode_entry"; } && "${'$'}opencode_entry" --version >/dev/null 2>&1; }; then
+        if ! { test -f "${'$'}opencode_entry" && { [ -x "${'$'}opencode_entry" ] || chmod u+rx "${'$'}opencode_entry"; } && "${'$'}opencode_entry" --version >/dev/null; }; then
           mark_provision_stage opencode_failed
           exit 24
         fi

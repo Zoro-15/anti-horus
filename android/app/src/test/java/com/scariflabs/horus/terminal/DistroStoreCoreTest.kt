@@ -98,6 +98,20 @@ class DistroStoreCoreTest {
   }
 
   @Test
+  fun `partial resets preserve hardlink backing and full user data reset removes it`() {
+    val store = newStore()
+    store.ensureLayout()
+    val backing = File(store.storage.hardlinks, "payload").apply { writeText("shared home or workspace data") }
+    store.reset()
+    assertTrue(backing.exists())
+    store.reset(deleteHome = true)
+    assertTrue(backing.exists())
+    store.reset(deleteHome = true, deleteWorkspaces = true)
+    assertFalse(backing.exists())
+    assertTrue(store.storage.hardlinks.isDirectory)
+  }
+
+  @Test
   fun `happy path installs verifies probes and writes the active record`() {
     val store = newStore()
     // Pre-create a home sentinel: installs must never touch user data.

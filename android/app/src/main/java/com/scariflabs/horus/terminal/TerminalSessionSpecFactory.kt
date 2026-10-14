@@ -90,6 +90,7 @@ class TerminalSessionSpecFactory(
       val launcher = ProotSessionLauncher(
         runtime = located.runtime,
         scratchDir = paths.guestTmp,
+        hardlinkDir = paths.hardlinks,
         dnsServersProvider = ::activeDnsServers,
         downloadSources = downloadSourceSettings.read(),
       )
@@ -164,6 +165,7 @@ class TerminalSessionSpecFactory(
       val launcher = ProotSessionLauncher(
         runtime = located.runtime,
         scratchDir = paths.guestTmp,
+        hardlinkDir = paths.hardlinks,
         dnsServersProvider = ::activeDnsServers,
         downloadSources = downloadSourceSettings.read(),
       )
@@ -209,6 +211,7 @@ class TerminalSessionSpecFactory(
       val launcher = ProotSessionLauncher(
         runtime = located.runtime,
         scratchDir = paths.guestTmp,
+        hardlinkDir = paths.hardlinks,
         dnsServersProvider = ::activeDnsServers,
         downloadSources = downloadSourceSettings.read(),
       )

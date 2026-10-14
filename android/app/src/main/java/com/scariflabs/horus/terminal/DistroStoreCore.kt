@@ -345,6 +345,11 @@ class DistroStoreCore(
         throw IOException("cannot recreate workspaces")
       }
     }
+    // Partial resets retain backing data for surviving home/workspace links.
+    if (deleteHome && deleteWorkspaces) {
+      deleteTreeIfPresent(paths.hardlinks)
+      if (!paths.hardlinks.mkdirs() && !paths.hardlinks.isDirectory) throw IOException("cannot recreate hardlinks")
+    }
     return ResetResult(removedVersions, removedHome, removedWorkspaces)
   }
 
