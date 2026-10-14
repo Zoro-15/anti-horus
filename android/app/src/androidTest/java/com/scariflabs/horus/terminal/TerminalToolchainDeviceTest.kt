@@ -72,7 +72,7 @@ class TerminalToolchainDeviceTest {
     val located = ProotRuntimeLocator(manifestText).locate(File(targetContext.applicationInfo.nativeLibraryDir ?: ""))
     assertTrue("packaged PRoot runtime is unavailable", located is ProotRuntimeLocator.Location.Available)
     val runtime = (located as ProotRuntimeLocator.Location.Available).runtime
-    val testRoot = File(targetContext.filesDir, "alpine-p5-device-test-${System.nanoTime()}")
+    val testRoot = File(targetContext.filesDir, "p5-${System.nanoTime()}")
     val paths = DistroStorePaths(testRoot)
     val store = DistroStoreCore(
       paths = paths,
@@ -240,7 +240,7 @@ class TerminalToolchainDeviceTest {
     val located = ProotRuntimeLocator(manifestText).locate(File(targetContext.applicationInfo.nativeLibraryDir ?: ""))
     assertTrue("packaged PRoot runtime is unavailable", located is ProotRuntimeLocator.Location.Available)
     val runtime = (located as ProotRuntimeLocator.Location.Available).runtime
-    val testRoot = File(targetContext.filesDir, "alpine-github-lazy-device-test-${System.nanoTime()}")
+    val testRoot = File(targetContext.filesDir, "gh-${System.nanoTime()}")
     val paths = DistroStorePaths(testRoot)
     val store = DistroStoreCore(
       paths = paths,
@@ -311,7 +311,7 @@ class TerminalToolchainDeviceTest {
     val located = ProotRuntimeLocator(manifestText).locate(File(targetContext.applicationInfo.nativeLibraryDir ?: ""))
     assertTrue("packaged PRoot runtime is unavailable", located is ProotRuntimeLocator.Location.Available)
     val runtime = (located as ProotRuntimeLocator.Location.Available).runtime
-    val testRoot = File(targetContext.filesDir, "alpine-harness-lazy-device-test-${System.nanoTime()}")
+    val testRoot = File(targetContext.filesDir, "h-${System.nanoTime()}")
     val paths = DistroStorePaths(testRoot)
     val store = DistroStoreCore(
       paths = paths,
@@ -328,11 +328,14 @@ class TerminalToolchainDeviceTest {
       scratchDir = paths.guestTmp,
       dnsServersProvider = { dnsServers },
     )
+    val requestedTarget = InstrumentationRegistry.getArguments().getString("horusHarnessTarget")
     val targets = listOf(
       Triple(TerminalRuntimeContract.TOOLCHAIN_TARGET_CLAUDE, "claude", "ALPINE_CLAUDE_LAZY_OK"),
       Triple(TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX, "codex", "ALPINE_CODEX_LAZY_OK"),
       Triple(TerminalRuntimeContract.TOOLCHAIN_TARGET_OPENCODE, "opencode", "ALPINE_OPENCODE_LAZY_OK"),
-    )
+    ).filter { requestedTarget == null || it.first == requestedTarget }
+    assertTrue("invalid focused harness target", targets.isNotEmpty())
+    var completed = false
 
     try {
       val install = store.install(downloadTimeoutMs = 120_000)
@@ -401,7 +404,7 @@ class TerminalToolchainDeviceTest {
           val repairResult = runLaunch(provision, 300)
           val repairLog = File(paths.home, ".cache/horus/$installLogName")
             .let { file -> if (file.isFile) file.readText().takeLast(2_000) else "<missing>" }
-          assertEquals("$target repair failed: $repairLog", 0, repairResult.first)
+          assertEquals("$target repair failed: $repairLog\n${repairResult.second.takeLast(4000)}", 0, repairResult.first)
           val repairedProbeResult = runLaunch(probe, 60)
           assertEquals(
             "$target repaired executable probe failed: ${repairedProbeResult.second.takeLast(2_000)}",
@@ -425,8 +428,13 @@ class TerminalToolchainDeviceTest {
         }
       }
       android.util.Log.i(LOG_TAG, "ALPINE_HARNESS_LAZY_OK")
+      completed = true
     } finally {
-      assertTrue("test-owned storage cleanup failed: ${testRoot.absolutePath}", testRoot.deleteRecursively())
+      if (!completed && InstrumentationRegistry.getArguments().getString("horusKeepFailedGuest") == "true") {
+        android.util.Log.e(LOG_TAG, "HARNESS_FAILED_GUEST=${testRoot.absolutePath}")
+      } else {
+        assertTrue("test-owned storage cleanup failed: ${testRoot.absolutePath}", testRoot.deleteRecursively())
+      }
     }
   }
 

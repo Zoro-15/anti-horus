@@ -253,6 +253,7 @@ class ProotSeccompProbeDeviceTest {
           runtime = runtime,
           scratchDir = File(modeRoot, "scratch"),
           seccompAcceleration = mode == "on",
+          hardlinkDir = realPaths.hardlinks,
         )
         verboseProbe(mode, launcher, rootfsDir, home)
         results += runMode(mode, launcher, rootfsDir, home).map { Triple(mode, it.first, it.second) }

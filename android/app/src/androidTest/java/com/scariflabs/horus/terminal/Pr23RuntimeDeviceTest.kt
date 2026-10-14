@@ -76,6 +76,13 @@ class Pr23RuntimeDeviceTest {
         test "${'$'}DOTNET_CLI_USE_MSBUILD_SERVER" = 0
         test "${'$'}UseSharedCompilation" = false
         test -w /tmp
+        mkdir -p /tmp/pr23-source /tmp/pr23-alias
+        printf preserved > /tmp/pr23-source/payload
+        ln /tmp/pr23-source/payload /tmp/pr23-alias/payload
+        rm /tmp/pr23-source/payload
+        rmdir /tmp/pr23-source
+        test "${'$'}(cat /tmp/pr23-alias/payload)" = preserved
+        rm -rf /tmp/pr23-alias
         printf writable > /tmp/pr23-writable
         printf 'PR23_ENV_OK tmp=%s gc=%s heap=%s msbuild=%s\n' "${'$'}PROOT_TMP_DIR" "${'$'}DOTNET_gcServer" "${'$'}DOTNET_GCHeapHardLimit" "${'$'}DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER"
       """.trimIndent()))

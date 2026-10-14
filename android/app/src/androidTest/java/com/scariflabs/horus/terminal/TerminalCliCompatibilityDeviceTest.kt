@@ -73,7 +73,7 @@ class TerminalCliCompatibilityDeviceTest {
     val located = ProotRuntimeLocator(manifestText).locate(File(targetContext.applicationInfo.nativeLibraryDir ?: ""))
     assertTrue("packaged PRoot runtime is unavailable", located is ProotRuntimeLocator.Location.Available)
     val runtime = (located as ProotRuntimeLocator.Location.Available).runtime
-    val testRoot = File(targetContext.filesDir, "alpine-p6-device-test-${System.nanoTime()}")
+    val testRoot = File(targetContext.filesDir, "p6-${System.nanoTime()}")
     val paths = DistroStorePaths(testRoot)
     val store = DistroStoreCore(
       paths = paths,
