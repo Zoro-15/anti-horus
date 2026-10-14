@@ -32,6 +32,10 @@ class ProotSessionLauncherTest {
     checkStatus(137, "exit 137\n", true)
     checkStatus(137, "kill -KILL ${'$'}${'$'}\n", true)
     checkStatus(23, "exit 23\n", false)
+    val commandShell = ProcessBuilder(zsh, "-dfi", "-c", ProotSessionLauncher.ZSH_EXIT_SCRIPT + "\nfalse")
+      .redirectErrorStream(true).start()
+    assertTrue(commandShell.waitFor(10, TimeUnit.SECONDS))
+    assertEquals("interactive -c must retain CLI failures", 1, commandShell.exitValue())
   }
 
   @Test

@@ -1098,7 +1098,7 @@ class ProotSessionLauncher(
     internal val ZSH_EXIT_SCRIPT = """
       # Interactive exit/EOF must not inherit a failed build's status.
       # Keep signal-style statuses, and never apply this to command shells.
-      if [[ -o interactive ]]; then
+      if [[ -o interactive && -z "${'$'}{ZSH_EXECUTION_STRING-}" ]]; then
         zshexit() { (( ${'$'}? > 128 )) || exit 0; }
       fi
     """.trimIndent()
