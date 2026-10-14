@@ -3,6 +3,12 @@ package com.scariflabs.horus.terminal
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.Path
+import java.nio.channels.FileChannel
+import java.nio.channels.OverlappingFileLockException
+import java.nio.file.StandardOpenOption.CREATE
+import java.nio.file.StandardOpenOption.WRITE
 import java.security.MessageDigest
 import org.json.JSONObject
 
@@ -68,8 +74,12 @@ class DistroStoreCore(
 
   fun ensureLayout() {
     for (directory in paths.allDirectories()) {
-      if (Files.isSymbolicLink(directory.toPath())) {
-        throw IOException("storage path is a symbolic link: ${directory.name}")
+      var ancestor: File? = directory
+      while (ancestor != null && ancestor != paths.base.parentFile) {
+        if (Files.isSymbolicLink(ancestor.toPath())) {
+          throw IOException("storage path is a symbolic link: ${ancestor.name}")
+        }
+        ancestor = ancestor.parentFile
       }
       if (!directory.isDirectory && !directory.mkdirs() && !directory.isDirectory) {
         throw IOException("cannot create ${directory.relativeToOrNull(paths.base)}")
@@ -210,59 +220,69 @@ class DistroStoreCore(
     // active record or a complete-but-unreferenced version — never a
     // manifest-less version. Reinstalling the active id never removes the
     // currently referenced rootfs before the replacement is known-good.
-    val activeBefore = readActiveRecord()
-    val versionDir = paths.versionDir(rootfsId)
-    if (activeBefore?.rootfsId == rootfsId && versionDir.isDirectory) {
-      try {
-        deleteTreeIfPresent(staging)
-      } catch (error: IOException) {
-        return InstallOutcome.Failure(rootfsId, "promote", "staging_cleanup_failed", error.message ?: "cannot clear staging")
-      }
-      return InstallOutcome.Success(
-        rootfsId = rootfsId,
-        archiveBytes = archiveToUse.length(),
-        archiveSha256 = expectedSha256,
-        extraction = summary,
-        probe = probe,
-        reusedCachedArchive = reusedCache,
-        durationMs = clock() - startedAt,
-      )
-    }
-    val replacement = paths.versionReplacement(rootfsId)
-    try {
-      deleteTreeIfPresent(replacement)
-      if (versionDir.exists() && !versionDir.renameTo(replacement)) {
-        throw IOException("cannot stage the existing versions/$rootfsId for replacement")
-      }
-      if (!staging.renameTo(versionDir)) {
-        if (replacement.exists() && !replacement.renameTo(versionDir)) {
-          throw IOException("cannot roll back versions/$rootfsId after promotion failure")
+    return try {
+      withHardlinkLock {
+        val activeBefore = readActiveRecord()
+        val versionDir = paths.versionDir(rootfsId)
+        if (activeBefore?.rootfsId == rootfsId && versionDir.isDirectory) {
+          try {
+            deleteTreeIfPresent(staging)
+          } catch (error: IOException) {
+            return@withHardlinkLock InstallOutcome.Failure(rootfsId, "promote", "staging_cleanup_failed", error.message ?: "cannot clear staging")
+          }
+          return@withHardlinkLock InstallOutcome.Success(
+            rootfsId = rootfsId,
+            archiveBytes = archiveToUse.length(),
+            archiveSha256 = expectedSha256,
+            extraction = summary,
+            probe = probe,
+            reusedCachedArchive = reusedCache,
+            durationMs = clock() - startedAt,
+          )
         }
-        throw IOException("cannot rename staging into versions/$rootfsId")
+        val replacement = paths.versionReplacement(rootfsId)
+        try {
+          deleteTreeIfPresent(replacement)
+          if (versionDir.exists() && !versionDir.renameTo(replacement)) {
+            throw IOException("cannot stage the existing versions/$rootfsId for replacement")
+          }
+          if (!staging.renameTo(versionDir)) {
+            if (replacement.exists() && !replacement.renameTo(versionDir)) {
+              throw IOException("cannot roll back versions/$rootfsId after promotion failure")
+            }
+            throw IOException("cannot rename staging into versions/$rootfsId")
+          }
+        } catch (error: IOException) {
+          deleteQuietly(staging)
+          return@withHardlinkLock InstallOutcome.Failure(rootfsId, "promote", "promote_failed", error.message ?: "cannot promote version")
+        }
+        try {
+          writeJsonAtomically(paths.activeRecord, record.toJson())
+        } catch (error: IOException) {
+          deleteQuietly(versionDir)
+          if (replacement.exists() && !replacement.renameTo(versionDir)) {
+            return@withHardlinkLock InstallOutcome.Failure(rootfsId, "promote", "rollback_failed", "active record write failed and version rollback failed")
+          }
+          return@withHardlinkLock InstallOutcome.Failure(rootfsId, "promote", "manifest_write_failed", error.message ?: "manifest failure")
+        }
+        deleteQuietly(replacement)
+        // Collection failure must not turn a committed installation into a
+        // reported install failure. A later lifecycle operation retries it.
+        runCatching { pruneHardlinkBacking() }
+        return@withHardlinkLock InstallOutcome.Success(
+          rootfsId = rootfsId,
+          archiveBytes = archiveToUse.length(),
+          archiveSha256 = expectedSha256,
+          extraction = summary,
+          probe = probe,
+          reusedCachedArchive = reusedCache,
+          durationMs = clock() - startedAt,
+        )
       }
     } catch (error: IOException) {
       deleteQuietly(staging)
-      return InstallOutcome.Failure(rootfsId, "promote", "promote_failed", error.message ?: "cannot promote version")
+      InstallOutcome.Failure(rootfsId, "promote", "storage_busy", error.message ?: "storage unavailable")
     }
-    try {
-      writeJsonAtomically(paths.activeRecord, record.toJson())
-    } catch (error: IOException) {
-      deleteQuietly(versionDir)
-      if (replacement.exists() && !replacement.renameTo(versionDir)) {
-        return InstallOutcome.Failure(rootfsId, "promote", "rollback_failed", "active record write failed and version rollback failed")
-      }
-      return InstallOutcome.Failure(rootfsId, "promote", "manifest_write_failed", error.message ?: "manifest failure")
-    }
-    deleteQuietly(replacement)
-    return InstallOutcome.Success(
-      rootfsId = rootfsId,
-      archiveBytes = archiveToUse.length(),
-      archiveSha256 = expectedSha256,
-      extraction = summary,
-      probe = probe,
-      reusedCachedArchive = reusedCache,
-      durationMs = clock() - startedAt,
-    )
   }
 
   /** A missing or half-written active record reads as "not installed". */
@@ -301,7 +321,7 @@ class DistroStoreCore(
 
   /** Rootfs reset removes version data and the active record; user data is only removed when explicitly named. */
   @Synchronized
-  fun reset(deleteHome: Boolean = false, deleteWorkspaces: Boolean = false): ResetResult {
+  fun reset(deleteHome: Boolean = false, deleteWorkspaces: Boolean = false): ResetResult = withHardlinkLock {
     val removedVersions = installedVersionIds()
     deleteTreeIfPresent(paths.activeRecord)
     val versionEntries = paths.versions.listFiles()?.toList().orEmpty()
@@ -345,12 +365,64 @@ class DistroStoreCore(
         throw IOException("cannot recreate workspaces")
       }
     }
-    // Partial resets retain backing data for surviving home/workspace links.
-    if (deleteHome && deleteWorkspaces) {
-      deleteTreeIfPresent(paths.hardlinks)
-      if (!paths.hardlinks.mkdirs() && !paths.hardlinks.isDirectory) throw IOException("cannot recreate hardlinks")
+    pruneHardlinkBacking()
+    ResetResult(removedVersions, removedHome, removedWorkspaces)
+  }
+
+  /** PRoot holds a POSIX read lock for its lifetime, including SSH children. */
+  private fun <T> withHardlinkLock(action: () -> T): T {
+    ensureLayout()
+    FileChannel.open(File(paths.hardlinks, ".gc.lock").toPath(), WRITE, CREATE, NOFOLLOW_LINKS).use { channel ->
+      val lock = try { channel.tryLock() } catch (_: OverlappingFileLockException) { null }
+        ?: throw IOException("runtime is in use; stop active sessions and SSH access, then retry")
+      lock.use { return action() }
     }
-    return ResetResult(removedVersions, removedHome, removedWorkspaces)
+  }
+
+  /**
+   * Lifecycle-only mark/sweep. PRoot stores source -> intermediate symlink ->
+   * backing file; host nlink is normally ONE even for surviving guest links.
+   * Java unlink does not update PRoot's suffix count, so neither count proves
+   * liveness. Walk surviving storage without following any directory symlinks,
+   * then trace only links inside l. Abort collection if any walk/read fails.
+   */
+  private fun pruneHardlinkBacking() {
+    val backing = paths.hardlinks.canonicalFile.toPath()
+    val candidates = Files.newDirectoryStream(backing).use { entries ->
+      entries.filter { it.fileName.toString().startsWith(".l2s.") }.toSet()
+    }
+    if (candidates.isEmpty()) return
+    val live = mutableSetOf<Path>()
+    fun mark(path: Path) {
+      var current = path.toAbsolutePath().normalize()
+      while (current in candidates && live.add(current)) {
+        if (!Files.isSymbolicLink(current)) break
+        current = current.parent.resolve(Files.readSymbolicLink(current)).normalize()
+      }
+    }
+    Files.walkFileTree(paths.base.canonicalFile.toPath(), object : java.nio.file.SimpleFileVisitor<Path>() {
+      override fun preVisitDirectory(dir: Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult =
+        if (dir.toAbsolutePath().normalize() == backing) java.nio.file.FileVisitResult.SKIP_SUBTREE
+        else java.nio.file.FileVisitResult.CONTINUE
+
+      override fun visitFile(file: Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+        if (attrs.isSymbolicLink) mark(file.parent.resolve(Files.readSymbolicLink(file)))
+        return java.nio.file.FileVisitResult.CONTINUE
+      }
+    })
+    // Also retain genuine host hardlinks (e.g. imported files); unavailable
+    // attributes fail closed. Android's NIO provider lacks unix:nlink.
+    for (entry in candidates) {
+      if (Files.isSymbolicLink(entry)) continue
+      val links = runCatching { android.system.Os.lstat(entry.toString()).st_nlink }.getOrElse {
+        (Files.getAttribute(entry, "unix:nlink", NOFOLLOW_LINKS) as Number).toLong()
+      }
+      if (links > 1) mark(entry)
+    }
+    candidates.filter { it !in live }.forEach { entry ->
+      // Only unlink direct files/symlinks, never traverse backing directories.
+      if (!Files.isDirectory(entry, NOFOLLOW_LINKS)) Files.deleteIfExists(entry)
+    }
   }
 
   data class ResetResult(

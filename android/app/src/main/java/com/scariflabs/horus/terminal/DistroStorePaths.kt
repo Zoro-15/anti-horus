@@ -20,7 +20,7 @@ data class DistroStorePaths(val base: File) {
   val sessions: File get() = File(base, "sessions")
   // Keep translated AF_UNIX paths below sockaddr_un.sun_path's 108 bytes.
   val guestTmp: File get() = File(base, "t")
-  /** Persistent backing for emulated hard links, outside guest /tmp and package trees. */
+  /** Persistent emulated hardlinks; lifecycle collection retains surviving symlink chains. */
   val hardlinks: File get() = File(base, "l")
   val diagnostics: File get() = File(base, "diagnostics")
 

@@ -474,10 +474,62 @@ index 9bd8dad..abd513d 100644
  	 * the capability.  */
  	if (even_if_not_root || config->euid == 0) /* TODO: || HAS_CAP(...) */
 diff --git a/src/extension/link2symlink/link2symlink.c b/src/extension/link2symlink/link2symlink.c
-index 9c67b10..f4ddfb0 100644
 --- a/src/extension/link2symlink/link2symlink.c
 +++ b/src/extension/link2symlink/link2symlink.c
-@@ -294,7 +294,7 @@ static int my_readlink(const char symlink[PATH_MAX], char value[PATH_MAX])
+@@ -111,6 +111,7 @@
+ static char l2s_directory[PATH_MAX];
+ static size_t l2s_directory_length;
+ static int l2s_directory_fd = -1;
++static int l2s_lock_fd = -1;
+ static bool l2s_directory_known;
+ 
+ /**
+@@ -155,6 +156,31 @@
+  * a symbolic link left under that name is a refusal and not something
+  * to follow.
+  */
++/* POSIX locks interoperate with the Android/JVM FileChannel collector.
++ * Keep the shared lock in the tracer until exit; do not use flock(2), which
++ * is a different lock namespace on Linux. Opening relative to the pinned
++ * directory with O_NOFOLLOW also prevents lock-path symlink escapes. */
++static int lock_l2s_directory(int directory_fd)
++{
++	struct flock lock = { .l_type = F_RDLCK, .l_whence = SEEK_SET };
++	struct stat info;
++	int fd = openat(directory_fd, ".gc.lock", O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0600);
++	if (fd < 0)
++		return -errno;
++	if (fstat(fd, &info) < 0 || !S_ISREG(info.st_mode)) {
++		close(fd);
++		return -EINVAL;
++	}
++	while (fcntl(fd, F_SETLKW, &lock) < 0) {
++		if (errno == EINTR)
++			continue;
++		int error = errno;
++		close(fd);
++		return -error;
++	}
++	return fd;
++}
++
+ static int open_l2s_directory(void)
+ {
+ 	if (l2s_directory_fd >= 0)
+@@ -168,6 +194,12 @@
+ 	if (l2s_directory_fd < 0)
+ 		return errno > 0 ? -errno : -ENOENT;
+ 
++	l2s_lock_fd = lock_l2s_directory(l2s_directory_fd);
++	if (l2s_lock_fd < 0) {
++		close(l2s_directory_fd);
++		l2s_directory_fd = -1;
++		return l2s_lock_fd;
++	}
+ 	return l2s_directory_fd;
+ }
+ 
+@@ -294,7 +326,7 @@
  		? readlink(symlink, value, PATH_MAX)
  		: readlinkat(dir_fd, name, value, PATH_MAX);
  	if (size < 0)
@@ -486,7 +538,7 @@ index 9c67b10..f4ddfb0 100644
  	if (size >= PATH_MAX)
  		return -ENAMETOOLONG;
  	value[size] = '\0';
-@@ -849,9 +849,13 @@ static int handle_sysexit_end(Extension *extension)
+@@ -849,9 +881,13 @@
  		if (!S_ISLNK(statl.st_mode))
  			return 0;
  
@@ -501,7 +553,7 @@ index 9c67b10..f4ddfb0 100644
  
  		name = strrchr(intermediate, '/');
  		if (name == NULL)
-@@ -864,11 +868,11 @@ static int handle_sysexit_end(Extension *extension)
+@@ -864,11 +900,11 @@
  
  		intermediate_proc: size = my_readlink(intermediate, final);
  		if (size < 0)
@@ -514,6 +566,18 @@ index 9c67b10..f4ddfb0 100644
 +			return 0;
  
  		finalStat.st_nlink = atoi(final + strlen(final) - 4);
+ 
+@@ -1145,6 +1181,11 @@
+ 			FILTERED_SYSNUM_END,
+ 		};
+ 		extension->filtered_sysnums = filtered_sysnums;
++		if (get_l2s_directory()) {
++			status = open_l2s_directory();
++			if (status < 0)
++				return status;
++		}
+ 		return 0;
+ 	}
  
 diff --git a/src/syscall/socket.c b/src/syscall/socket.c
 index ec74950..7fea3ad 100644

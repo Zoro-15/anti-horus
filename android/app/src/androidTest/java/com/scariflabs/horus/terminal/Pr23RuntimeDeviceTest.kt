@@ -142,6 +142,81 @@ class Pr23RuntimeDeviceTest {
     }
   }
 
+  @Test(timeout = 600_000)
+  fun codexReadinessAndHardlinkLifecycleRecovery() {
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    assertTrue("use the isolated validation package", context.packageName.endsWith(".pr23check"))
+    val manifest = context.assets.open("alpine-runtime/manifest.json").bufferedReader().use { it.readText() }
+    val runtime = (ProotRuntimeLocator(manifest).locate(File(context.applicationInfo.nativeLibraryDir)) as ProotRuntimeLocator.Location.Available).runtime
+    val paths = DistroStorePaths(File(context.filesDir, "r23"))
+    assertFalse("test guest already exists", paths.base.exists())
+    val store = DistroStoreCore(paths, HttpArchiveDownloader(), SafeTarGzExtractor(), ProotGuestProber(runtime, paths.guestTmp))
+    val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    val dns = connectivity.activeNetwork?.let { connectivity.getLinkProperties(it)?.dnsServers }?.mapNotNull { it.hostAddress }.orEmpty()
+    val launcher = ProotSessionLauncher(runtime, paths.guestTmp, dnsServersProvider = { dns })
+    fun process(launch: ProotSessionLauncher.LaunchSpec, log: File): Process = ProcessBuilder(launch.argv).apply {
+      environment().clear()
+      launch.environment.forEach { entry -> environment()[entry.substringBefore('=')] = entry.substringAfter('=') }
+      redirectErrorStream(true); redirectOutput(log)
+    }.start()
+    fun run(launch: ProotSessionLauncher.LaunchSpec) {
+      val log = File(paths.base, "recovery.log")
+      val guest = process(launch, log)
+      if (!guest.waitFor(300, TimeUnit.SECONDS)) { guest.destroyForcibly(); fail(log.readText().takeLast(3000)) }
+      assertEquals(log.readText().takeLast(3000), 0, guest.exitValue())
+    }
+    try {
+      val installed = store.install()
+      assertTrue(installed.toString(), installed is DistroStoreCore.InstallOutcome.Success)
+      val root = store.activeRootfsDir()!!
+      run(launcher.toolchainProvisionLaunchSpec(root, paths.home, "codex"))
+      assertTrue(launcher.hasProvisionedToolchain(root, paths.home, "codex"))
+      val check = File(paths.home, "recovery.sh").apply { writeText(
+        "set -eu\n" + ProotSessionLauncher.CODEX_INSTALL_SCRIPT + """
+
+        codex_works() { echo unexpected-probe >&2; return 99; }
+        npm() { echo unexpected-download >&2; return 99; }
+        install_codex_package
+        codex_stamped
+        mkdir -p /root/links /workspace/links
+        printf surviving > /usr/root-only
+        ln /usr/root-only /root/links/survivor
+        ln /root/links/survivor /workspace/links/survivor
+        printf orphan > /usr/root-orphan
+        ln /usr/root-orphan /usr/root-orphan-alias
+        printf complete > /root/recovery-complete
+        """.trimIndent()) }
+      run(launcher.interactiveShellLaunchSpec(root, paths.home, paths.defaultWorkspace, sessionCommand = "exec /bin/sh /root/${check.name}"))
+      assertEquals("complete", File(paths.home, "recovery-complete").readText())
+      val orphanLink = File(root, "usr/root-orphan")
+      val orphanIntermediate = File(java.nio.file.Files.readSymbolicLink(orphanLink.toPath()).toString())
+      val orphanBacking = File(java.nio.file.Files.readSymbolicLink(orphanIntermediate.toPath()).toString())
+      assertEquals(1L, android.system.Os.lstat(orphanBacking.absolutePath).st_nlink)
+      val busyLog = File(paths.base, "busy.log")
+      val busy = process(launcher.interactiveShellLaunchSpec(root, paths.home, sessionCommand = "printf busy > /root/busy-ready; while [ ! -f /root/busy-stop ]; do sleep 1; done"), busyLog)
+      try {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+        while (!File(paths.home, "busy-ready").exists() && System.nanoTime() < deadline) Thread.sleep(50)
+        assertTrue(busyLog.readText(), File(paths.home, "busy-ready").exists())
+        try { store.reset(); fail("live PRoot permitted reset") } catch (expected: java.io.IOException) {
+          assertTrue(expected.message.orEmpty().contains("in use"))
+        }
+        assertTrue(orphanBacking.exists())
+      } finally {
+        File(paths.home, "busy-stop").writeText("stop")
+        if (!busy.waitFor(30, TimeUnit.SECONDS)) { busy.destroyForcibly(); fail("busy fixture did not exit: ${busyLog.readText()}") }
+      }
+      store.reset()
+      assertFalse(orphanBacking.exists()); assertFalse(orphanIntermediate.exists())
+      assertEquals("surviving", File(paths.home, "links/survivor").readText())
+      store.reset(deleteHome = true)
+      assertEquals("surviving", File(paths.defaultWorkspace, "links/survivor").readText())
+      store.reset(deleteWorkspaces = true)
+      assertTrue(paths.hardlinks.listFiles()!!.none { it.name.startsWith(".l2s.") })
+      android.util.Log.i(TAG, "PR23_RECOVERY_OK stamped-no-probe actual-l2s-nlink=1 live-reset-blocked lifecycle-collected")
+    } finally { assertTrue("test guest cleanup failed", paths.base.deleteRecursively()) }
+  }
+
   private fun checkInteractiveExits(launcher: ProotSessionLauncher, rootfs: File, home: File) {
     val bytes = ByteArrayOutputStream()
     fun output(): String = synchronized(bytes) { bytes.toString("UTF-8") }

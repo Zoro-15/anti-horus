@@ -35,8 +35,9 @@ manifest before packaging.
   orphaned PID-named staging files while preserving live-process files.
 - Removing a hardlink source directory while a surviving alias retains its data.
   `PROOT_L2S_DIR` uses persistent app storage outside temporary/package directories,
-  with an identity bind for its absolute backing paths. Partial storage resets
-  preserve backing data; resetting both home and workspace clears it.
+  with an identity bind for its absolute backing paths. Lifecycle collection
+  reclaims unreferenced backing after resets/replacement while retaining surviving
+  reference chains, including home, harness, workspace and guest-tmp files.
 - Fresh Codex provisioning, ARM64 optional-package resolution and `codex --version`.
 - The GC defaults, MSBuild server opt-outs and `UseSharedCompilation=false`;
   .NET 10 console restore/build/execution without extra build-server flags.
@@ -80,3 +81,56 @@ four-CLI matrix installed Claude 2.1.296, Codex 0.162.1, OpenCode 1.19.0 and Gem
 0.64.0; offline execution and relaunch passed for all four. The separate harness
 test passed fresh provisioning, root/non-root execution and intentional payload
 corruption recovery for Codex and OpenCode.
+
+## PR #23 review follow-up — 2026-10-15
+
+The prior full matrix above is evidence for pre-review head `add2257`. The review
+follow-up uses focused regressions; it does not repeat the .NET or four-CLI matrix.
+
+```sh
+cd android
+./gradlew -I /tmp/horus-device.gradle :app:testDebugUnitTest \
+  --tests '*CodexRecoveryTest' --tests '*ProotSessionLauncherTest' \
+  --tests '*DistroStoreCoreTest' --tests '*RemoteAccessTest' --no-daemon
+./gradlew -I /tmp/horus-device.gradle :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.scariflabs.horus.terminal.Pr23RuntimeDeviceTest#codexReadinessAndHardlinkLifecycleRecovery \
+  -Phorus.testCmakeVersion=4.4.3 --no-daemon
+cd ..
+bash scripts/native/test-unix-socket-translation.sh
+npm run test:unit -- --watchAll=false __tests__/appExitedOverlay.test.tsx \
+  __tests__/terminalRuntimeStatus.test.ts __tests__/installProgress.test.ts
+npm run typecheck
+```
+
+Host regressions execute the production Codex shell with disposable npm/native
+fixtures: offline stamped SSH launch with no probe/download, one-time missing-stamp
+recovery, timeout preservation, failed download/validation, interruption between
+promotion renames, stale ARM64 aliases, shell/Kotlin stamp equivalence, stamp-write
+failure and concurrent recovery. The ELF fixture validates structure; it does not
+execute ARM64 instructions on the host. Rootfs tests model PRoot's real two-symlink
+chains with host nlink=1, plus genuine host hardlinks, version replacement, scoped
+resets, external-symlink safety and exclusion by live storage leases. Native tests
+compile the exact shared-lock helper from the patched PRoot source and check shared
+sessions, exclusive cleanup, lock release and symlink refusal.
+
+The single device regression uses only the isolated `.pr23check` application and
+a short disposable guest. It provisions real Codex, checks Kotlin readiness,
+proves that stamped shell readiness invokes neither npm nor the native probe,
+creates real PRoot emulated links, checks host nlink=1, refuses reset during a live
+PRoot session, and verifies rootfs/home/workspace cleanup preserves surviving data.
+The fixture exits its live guest normally before collection; force-destroying a
+PRoot parent alone did not reliably terminate its descendants in the initial run.
+
+The original #10 clone interruption cause remains unknown. The #17 reporter's
+multi-project/multi-target signing build was not fully reproduced; the prior
+.NET console build validates a mitigation, not that whole workload. Authenticated
+agent execution/resume remains untested, and the prior Linux-sandbox limitation
+still applies. Keep those issue claims open for reporter confirmation.
+
+Final follow-up results: **64 focused JVM tests passed**, with one existing Zsh
+behavior test skipped because Zsh was not on the host test path; **32 TypeScript
+tests passed** across three suites; TypeScript typecheck and all three native
+checks passed. The single isolated Samsung SM-S918B / Android 16 API 36 recovery
+regression passed with **zero failures and zero skips**. The full hardware matrix
+and the reporter's .NET project were not rerun. Patch application/build validation
+passed; source/document whitespace checks exclude patch context-line whitespace.
