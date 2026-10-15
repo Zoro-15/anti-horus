@@ -164,7 +164,7 @@ class TerminalPtyDeviceTest {
       paths = paths,
       downloader = HttpArchiveDownloader(),
       extractor = SafeTarGzExtractor(),
-      prober = ProotGuestProber(runtime, File(paths.sessions, ".proot-scratch")),
+      prober = ProotGuestProber(runtime, paths.guestTmp),
     )
     val sink = OutputSink()
     val listener = DeviceListener(sink)
@@ -177,7 +177,7 @@ class TerminalPtyDeviceTest {
     )
     val launcher = ProotSessionLauncher(
       runtime = runtime,
-      scratchDir = File(paths.sessions, ".proot-scratch"),
+      scratchDir = paths.guestTmp,
       dnsServersProvider = {
         val connectivity = targetContext.getSystemService(ConnectivityManager::class.java)
         connectivity.activeNetwork

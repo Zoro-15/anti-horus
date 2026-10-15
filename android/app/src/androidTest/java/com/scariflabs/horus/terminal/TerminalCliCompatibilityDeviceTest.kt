@@ -73,13 +73,13 @@ class TerminalCliCompatibilityDeviceTest {
     val located = ProotRuntimeLocator(manifestText).locate(File(targetContext.applicationInfo.nativeLibraryDir ?: ""))
     assertTrue("packaged PRoot runtime is unavailable", located is ProotRuntimeLocator.Location.Available)
     val runtime = (located as ProotRuntimeLocator.Location.Available).runtime
-    val testRoot = File(targetContext.filesDir, "alpine-p6-device-test-${System.nanoTime()}")
+    val testRoot = File(targetContext.filesDir, "p6-${System.nanoTime()}")
     val paths = DistroStorePaths(testRoot)
     val store = DistroStoreCore(
       paths = paths,
       downloader = HttpArchiveDownloader(),
       extractor = SafeTarGzExtractor(),
-      prober = ProotGuestProber(runtime, File(paths.sessions, ".proot-scratch")),
+      prober = ProotGuestProber(runtime, paths.guestTmp),
     )
     val sink = OutputSink()
     val listener = DeviceListener(sink)
@@ -95,7 +95,7 @@ class TerminalCliCompatibilityDeviceTest {
       .orEmpty()
     val launcher = ProotSessionLauncher(
       runtime = runtime,
-      scratchDir = File(paths.sessions, ".proot-scratch"),
+      scratchDir = paths.guestTmp,
       dnsServersProvider = { dnsServers },
     )
     listener.respondToCursorQuery = { sessionId ->
@@ -200,7 +200,9 @@ class TerminalCliCompatibilityDeviceTest {
     expectedExitCount: Int,
   ): TerminalSessionSupervisor.SessionHandle {
     val sessionId = supervisor.nextSessionId()
-    val launch = launcher.interactiveShellLaunchSpec(rootfs, paths.home, paths.defaultWorkspace)
+    // This matrix starts before apk installs zsh and asserts BusyBox prompt bytes.
+    val launch = launcher.interactiveShellLaunchSpec(rootfs, paths.home, paths.defaultWorkspace,
+      sessionCommand = "exec /bin/sh -l")
     val outcome = supervisor.start(
       sessionId,
       TerminalSessionSupervisor.StartSpec(launch.argv, launch.environment, launch.workingDirectory, 30, 120),
@@ -345,7 +347,7 @@ class TerminalCliCompatibilityDeviceTest {
 
   private fun codexNpmInstallCommand(packageName: String): String = """
     CODEX_PREFIX="${'$'}P6/codex-global"; rm -rf "${'$'}CODEX_PREFIX"; mkdir -p "${'$'}CODEX_PREFIX";
-    if npm install --global --prefix "${'$'}CODEX_PREFIX" --no-package-lock --no-audit --no-fund "$packageName" >"${'$'}P6/log/codex-cli-install" 2>&1 && test -x "${'$'}CODEX_PREFIX/bin/codex"; then
+    if npm install --global --include=optional --prefix "${'$'}CODEX_PREFIX" --no-package-lock --no-audit --no-fund "$packageName" >"${'$'}P6/log/codex-cli-install" 2>&1 && test -x "${'$'}CODEX_PREFIX/bin/codex"; then
       : > "${'$'}P6/install/codex-cli.pass"; p6_emit codex-cli install pass unknown npm_global;
     else detail="${'$'}(p6_install_detail "${'$'}P6/log/codex-cli-install")"; p6_emit codex-cli install fail unknown "${'$'}detail"; fi
   """.trimIndent().replace("\n", " ")

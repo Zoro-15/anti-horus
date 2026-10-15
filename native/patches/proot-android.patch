@@ -165,7 +165,7 @@ index 447d723..f18f129 100644
  
  	child = get_tracee(parent, (pid_t) pid, true);
 diff --git a/src/syscall/enter.c b/src/syscall/enter.c
-index 93f4306..91aa02c 100644
+index 93f4306..c82cf7d 100644
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
 @@ -1808,6 +1808,19 @@ static void maybe_redirect_userns_file(Tracee *tracee, Reg reg)
@@ -188,7 +188,34 @@ index 93f4306..91aa02c 100644
  /**
   * Translate the input arguments of the current @tracee's syscall in the
   * @tracee->pid process area. This function sets @tracee->status to
-@@ -2350,6 +2363,16 @@ int translate_syscall_enter(Tracee *tracee)
+@@ -1979,7 +1992,7 @@ int translate_syscall_enter(Tracee *tracee)
+ 			break;
+ 
+ 		poke_reg(tracee, SYSARG_2, address);
+-		poke_reg(tracee, SYSARG_3, sizeof(struct sockaddr_un));
++		poke_reg(tracee, SYSARG_3, status);
+ 
+ 		status = 0;
+ 		break;
+@@ -2332,6 +2345,8 @@ int translate_syscall_enter(Tracee *tracee)
+ 		if (status <= 0)
+ 			break;
+ 
++		const int translated_size = status;
++
+ 		/* These parameters are used/restored at the exit stage.  */
+ 		poke_reg(tracee, SYSARG_5, sock_addr_saved);
+ 		poke_reg(tracee, SYSARG_6, size);
+@@ -2339,7 +2354,7 @@ int translate_syscall_enter(Tracee *tracee)
+ 		/* Remember: POKE_WORD puts -errno in status and breaks if an
+ 		 * error occured.  */
+ 		POKE_WORD(SYSARG_ADDR(2), sock_addr);
+-		POKE_WORD(SYSARG_ADDR(3), sizeof(struct sockaddr_un));
++		POKE_WORD(SYSARG_ADDR(3), translated_size);
+ 
+ 		status = 0;
+ 		break;
+@@ -2350,6 +2365,16 @@ int translate_syscall_enter(Tracee *tracee)
  #undef POKE_WORD
  
  	case PR_access:
@@ -205,7 +232,7 @@ index 93f4306..91aa02c 100644
  	case PR_acct:
  	case PR_chmod:
  	case PR_chown:
-@@ -2508,6 +2531,13 @@ int translate_syscall_enter(Tracee *tracee)
+@@ -2508,6 +2533,13 @@ int translate_syscall_enter(Tracee *tracee)
  	case PR_fchmodat:
  	case PR_faccessat:
  	case PR_faccessat2:
@@ -218,6 +245,7 @@ index 93f4306..91aa02c 100644
 +
  	case PR_futimesat:
  	case PR_mknodat:
+ 		dirfd = peek_reg(tracee, CURRENT, SYSARG_1);
 diff --git a/src/tracee/seccomp.c b/src/tracee/seccomp.c
 index 6a4e1f8..9a7f8dd 100644
 --- a/src/tracee/seccomp.c
@@ -446,10 +474,62 @@ index 9bd8dad..abd513d 100644
  	 * the capability.  */
  	if (even_if_not_root || config->euid == 0) /* TODO: || HAS_CAP(...) */
 diff --git a/src/extension/link2symlink/link2symlink.c b/src/extension/link2symlink/link2symlink.c
-index 9c67b10..f4ddfb0 100644
 --- a/src/extension/link2symlink/link2symlink.c
 +++ b/src/extension/link2symlink/link2symlink.c
-@@ -294,7 +294,7 @@ static int my_readlink(const char symlink[PATH_MAX], char value[PATH_MAX])
+@@ -111,6 +111,7 @@
+ static char l2s_directory[PATH_MAX];
+ static size_t l2s_directory_length;
+ static int l2s_directory_fd = -1;
++static int l2s_lock_fd = -1;
+ static bool l2s_directory_known;
+ 
+ /**
+@@ -155,6 +156,31 @@
+  * a symbolic link left under that name is a refusal and not something
+  * to follow.
+  */
++/* POSIX locks interoperate with the Android/JVM FileChannel collector.
++ * Keep the shared lock in the tracer until exit; do not use flock(2), which
++ * is a different lock namespace on Linux. Opening relative to the pinned
++ * directory with O_NOFOLLOW also prevents lock-path symlink escapes. */
++static int lock_l2s_directory(int directory_fd)
++{
++	struct flock lock = { .l_type = F_RDLCK, .l_whence = SEEK_SET };
++	struct stat info;
++	int fd = openat(directory_fd, ".gc.lock", O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0600);
++	if (fd < 0)
++		return -errno;
++	if (fstat(fd, &info) < 0 || !S_ISREG(info.st_mode)) {
++		close(fd);
++		return -EINVAL;
++	}
++	while (fcntl(fd, F_SETLKW, &lock) < 0) {
++		if (errno == EINTR)
++			continue;
++		int error = errno;
++		close(fd);
++		return -error;
++	}
++	return fd;
++}
++
+ static int open_l2s_directory(void)
+ {
+ 	if (l2s_directory_fd >= 0)
+@@ -168,6 +194,12 @@
+ 	if (l2s_directory_fd < 0)
+ 		return errno > 0 ? -errno : -ENOENT;
+ 
++	l2s_lock_fd = lock_l2s_directory(l2s_directory_fd);
++	if (l2s_lock_fd < 0) {
++		close(l2s_directory_fd);
++		l2s_directory_fd = -1;
++		return l2s_lock_fd;
++	}
+ 	return l2s_directory_fd;
+ }
+ 
+@@ -294,7 +326,7 @@
  		? readlink(symlink, value, PATH_MAX)
  		: readlinkat(dir_fd, name, value, PATH_MAX);
  	if (size < 0)
@@ -458,7 +538,7 @@ index 9c67b10..f4ddfb0 100644
  	if (size >= PATH_MAX)
  		return -ENAMETOOLONG;
  	value[size] = '\0';
-@@ -849,9 +849,13 @@ static int handle_sysexit_end(Extension *extension)
+@@ -849,9 +881,13 @@
  		if (!S_ISLNK(statl.st_mode))
  			return 0;
  
@@ -473,7 +553,7 @@ index 9c67b10..f4ddfb0 100644
  
  		name = strrchr(intermediate, '/');
  		if (name == NULL)
-@@ -864,11 +868,11 @@ static int handle_sysexit_end(Extension *extension)
+@@ -864,11 +900,11 @@
  
  		intermediate_proc: size = my_readlink(intermediate, final);
  		if (size < 0)
@@ -487,3 +567,120 @@ index 9c67b10..f4ddfb0 100644
  
  		finalStat.st_nlink = atoi(final + strlen(final) - 4);
  
+@@ -1145,6 +1181,11 @@
+ 			FILTERED_SYSNUM_END,
+ 		};
+ 		extension->filtered_sysnums = filtered_sysnums;
++		if (get_l2s_directory()) {
++			status = open_l2s_directory();
++			if (status < 0)
++				return status;
++		}
+ 		return 0;
+ 	}
+ 
+diff --git a/src/syscall/socket.c b/src/syscall/socket.c
+index ec74950..7fea3ad 100644
+--- a/src/syscall/socket.c
++++ b/src/syscall/socket.c
+@@ -88,8 +88,8 @@ static int read_sockaddr_un(Tracee *tracee, struct sockaddr_un *sockaddr, word_t
+  * in the @tracee memory at the given @address.  See the documentation
+  * of read_sockaddr_un() for the meaning of the @size parameter.
+  * Also, the new address of the translated sockaddr_un is put in the
+- * @address parameter.  This function returns -errno if an error
+- * occurred, otherwise 0.
++ * @address parameter.  This function returns -errno on error, 0 when no translation is needed,
++ * otherwise the translated sockaddr length (including its terminating NUL).
+  */
+ int translate_socketcall_enter(Tracee *tracee, word_t *address, int size)
+ {
+@@ -144,6 +144,7 @@ int translate_socketcall_enter(Tracee *tracee, word_t *address, int size)
+ 		/* Let's use this shorter path now.  */
+ 		strcpy(host_path, shorter_host_path);
+ 	}
++	bzero(sockaddr.sun_path, sizeof_path);
+ 	strncpy(sockaddr.sun_path, host_path, sizeof_path);
+ 
+ 	/* Push the updated sockaddr to a newly allocated space.  */
+@@ -155,7 +156,9 @@ int translate_socketcall_enter(Tracee *tracee, word_t *address, int size)
+ 	if (status < 0)
+ 		return status;
+ 
+-	return 1;
++	/* The kernel must see the host pathname length, not the guest addrlen.
++	 * A full 108-byte sun_path is legal without a terminating NUL. */
++	return offsetof_path + MIN(strlen(host_path) + 1, sizeof_path);
+ }
+ 
+ /**
+diff --git a/src/tracee/event.c b/src/tracee/event.c
+index df953ee..85187e5 100644
+--- a/src/tracee/event.c
++++ b/src/tracee/event.c
+@@ -249,7 +249,9 @@ static void print_talloc_hierarchy(int signum, siginfo_t *siginfo UNUSED, void *
+ 	}
+ }
+ 
+-static int last_exit_status = -1;
++#include "tracee/exit_status.h"
++
++static ProotExitStatus exit_status = { -1, -1 };
+ 
+ /**
+  * Check if this instance of PRoot can *technically* handle @tracee.
+@@ -433,7 +435,7 @@ int event_loop()
+ 		(void) restart_tracee(tracee, signal);
+ 	}
+ 
+-	return last_exit_status;
++	return get_proot_exit_status(&exit_status);
+ }
+ 
+ /**
+@@ -477,11 +479,11 @@ int handle_tracee_event(Tracee *tracee, int tracee_status)
+ 	/* Not a signal-stop by default.  */
+ 	signal = 0;
+ 
++	record_proot_exit_status(&exit_status, tracee->vpid, tracee_status);
+ 	if (WIFEXITED(tracee_status)) {
+-		last_exit_status = WEXITSTATUS(tracee_status);
+ 		VERBOSE(tracee, 1,
+ 			"vpid %" PRIu64 ": exited with status %d",
+-			tracee->vpid, last_exit_status);
++			tracee->vpid, WEXITSTATUS(tracee_status));
+ 		terminate_tracee(tracee);
+ 	}
+ 	else if (WIFSIGNALED(tracee_status)) {
+diff --git a/src/tracee/exit_status.h b/src/tracee/exit_status.h
+new file mode 100644
+index 0000000..b19d8f9
+--- /dev/null
++++ b/src/tracee/exit_status.h
+@@ -0,0 +1,27 @@
++/* Preserve the initial guest process status independently of helper children. */
++#ifndef PROOT_EXIT_STATUS_H
++#define PROOT_EXIT_STATUS_H
++#include <stdint.h>
++#include <sys/wait.h>
++
++typedef struct {
++    int last_child;
++    int initial_guest;
++} ProotExitStatus;
++
++static inline void record_proot_exit_status(ProotExitStatus *state, uint64_t vpid, int status)
++{
++    if (WIFEXITED(status)) {
++        state->last_child = WEXITSTATUS(status);
++        if (vpid == 1)
++            state->initial_guest = state->last_child;
++    } else if (WIFSIGNALED(status) && vpid == 1) {
++        state->initial_guest = 128 + WTERMSIG(status);
++    }
++}
++
++static inline int get_proot_exit_status(const ProotExitStatus *state)
++{
++    return state->initial_guest >= 0 ? state->initial_guest : state->last_child;
++}
++#endif

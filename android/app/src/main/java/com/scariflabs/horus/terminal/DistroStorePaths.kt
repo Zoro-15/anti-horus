@@ -18,6 +18,10 @@ data class DistroStorePaths(val base: File) {
   val downloadsIncoming: File get() = File(base, "downloads/incoming")
   val downloadsCache: File get() = File(base, "downloads/cache")
   val sessions: File get() = File(base, "sessions")
+  // Keep translated AF_UNIX paths below sockaddr_un.sun_path's 108 bytes.
+  val guestTmp: File get() = File(base, "t")
+  /** Persistent emulated hardlinks; lifecycle collection retains surviving symlink chains. */
+  val hardlinks: File get() = File(base, "l")
   val diagnostics: File get() = File(base, "diagnostics")
 
   fun versionDir(rootfsId: String): File = File(versions, rootfsId)
@@ -39,7 +43,7 @@ data class DistroStorePaths(val base: File) {
     base, distro, versions, home, harnessHomes,
     *HARNESS_HOME_KEYS.map(::harnessHome).toTypedArray(),
     defaultWorkspace, downloadsIncoming,
-    downloadsCache, sessions, diagnostics,
+    downloadsCache, sessions, guestTmp, hardlinks, diagnostics,
   )
 
   private companion object {

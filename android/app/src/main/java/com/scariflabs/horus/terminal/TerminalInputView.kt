@@ -29,7 +29,8 @@ internal fun applyTerminalInputModifiers(value: String, ctrlActive: Boolean, alt
   val output = StringBuilder(value.length + if (altActive) value.length else 0)
   value.codePoints().forEach { codePoint ->
     val modified = if (ctrlActive) controlCodePoint(codePoint) else codePoint
-    if (altActive) output.appendCodePoint(0x1b)
+    // ESC + TAB is not a recognized terminal key sequence (e.g. gh survey).
+    if (altActive && codePoint != 0x09 && codePoint != 0x1b) output.appendCodePoint(0x1b)
     output.appendCodePoint(modified)
   }
   return output.toString()

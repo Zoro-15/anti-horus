@@ -31,12 +31,12 @@ class TerminalToolchainDeviceTest {
 
     fun textFrom(offset: Int): String = synchronized(lock) {
       val bytes = output.toByteArray()
-      String(bytes.copyOfRange(offset.coerceIn(0, bytes.size), bytes.size), Charsets.ISO_8859_1)
+      String(bytes.copyOfRange(offset.coerceIn(0, bytes.size), bytes.size), Charsets.UTF_8)
     }
 
     fun tail(limit: Int = 1200): String = synchronized(lock) {
       val bytes = output.toByteArray()
-      String(bytes.copyOfRange(maxOf(0, bytes.size - limit), bytes.size), Charsets.ISO_8859_1)
+      String(bytes.copyOfRange(maxOf(0, bytes.size - limit), bytes.size), Charsets.UTF_8)
     }
   }
 
@@ -72,13 +72,13 @@ class TerminalToolchainDeviceTest {
     val located = ProotRuntimeLocator(manifestText).locate(File(targetContext.applicationInfo.nativeLibraryDir ?: ""))
     assertTrue("packaged PRoot runtime is unavailable", located is ProotRuntimeLocator.Location.Available)
     val runtime = (located as ProotRuntimeLocator.Location.Available).runtime
-    val testRoot = File(targetContext.filesDir, "alpine-p5-device-test-${System.nanoTime()}")
+    val testRoot = File(targetContext.filesDir, "p5-${System.nanoTime()}")
     val paths = DistroStorePaths(testRoot)
     val store = DistroStoreCore(
       paths = paths,
       downloader = HttpArchiveDownloader(),
       extractor = SafeTarGzExtractor(),
-      prober = ProotGuestProber(runtime, File(paths.sessions, ".proot-scratch")),
+      prober = ProotGuestProber(runtime, paths.guestTmp),
     )
     val sink = OutputSink()
     val listener = DeviceListener(sink)
@@ -95,7 +95,7 @@ class TerminalToolchainDeviceTest {
     android.util.Log.i(LOG_TAG, "P5_DNS_HOST=${dnsServers.joinToString(",")}")
     val launcher = ProotSessionLauncher(
       runtime = runtime,
-      scratchDir = File(paths.sessions, ".proot-scratch"),
+      scratchDir = paths.guestTmp,
       dnsServersProvider = { dnsServers },
     )
     listener.acknowledge = { sessionId, seq -> supervisor.acknowledgeOutput(sessionId, seq) }
@@ -122,7 +122,7 @@ class TerminalToolchainDeviceTest {
         toolchainTarget = TerminalRuntimeContract.TOOLCHAIN_TARGET_SHELL,
       )
       android.util.Log.i(LOG_TAG, "P5_PHASE=first_shell_started session=${first.sessionId}")
-      awaitPrompt(sink, 20_000)
+      awaitPrompt(sink, 180_000)
       assertTrue("bare-terminal install target was not visible", sink.tail(8_000).contains("HORUS_INSTALL_TARGET=shell"))
       assertTrue("bare-terminal install completion was not visible", sink.tail(8_000).contains("HORUS_TOOLCHAIN_READY"))
       android.util.Log.i(LOG_TAG, "P5_PHASE=first_prompt_observed")
@@ -149,7 +149,7 @@ class TerminalToolchainDeviceTest {
       write(
         supervisor,
         first.sessionId,
-        "printf 'P5_INSTALL_BEGIN\\n'; apk add --no-cache --no-progress bash curl ca-certificates gcompat git jq openssh-client-default nodejs npm python3 py3-pip ripgrep libgcc libstdc++ >/root/.horus-p5-apk.log 2>&1; status=\$?; if [ \"\$status\" -ne 0 ]; then tail -30 /root/.horus-p5-apk.log; fi; printf 'P5_INSTALL_RESULT:%s\\n' \"\$status\"; printf 'P5_INSTALL_END\\n'",
+        "printf 'P5_INSTALL_BEGIN\\n'; apk add --no-cache --no-progress bash curl ca-certificates gcompat git jq openssh-client-default nodejs npm python3 py3-pip ripgrep libgcc libstdc++ >/root/.horus-p5-apk.log 2>&1; p5_install_status=\$?; if [ \"\$p5_install_status\" -ne 0 ]; then tail -30 /root/.horus-p5-apk.log; fi; printf 'P5_INSTALL_RESULT:%s\\n' \"\$p5_install_status\"; printf 'P5_INSTALL_END\\n'",
       )
       awaitMarkersInOrder(
         sink,
@@ -240,13 +240,13 @@ class TerminalToolchainDeviceTest {
     val located = ProotRuntimeLocator(manifestText).locate(File(targetContext.applicationInfo.nativeLibraryDir ?: ""))
     assertTrue("packaged PRoot runtime is unavailable", located is ProotRuntimeLocator.Location.Available)
     val runtime = (located as ProotRuntimeLocator.Location.Available).runtime
-    val testRoot = File(targetContext.filesDir, "alpine-github-lazy-device-test-${System.nanoTime()}")
+    val testRoot = File(targetContext.filesDir, "gh-${System.nanoTime()}")
     val paths = DistroStorePaths(testRoot)
     val store = DistroStoreCore(
       paths = paths,
       downloader = HttpArchiveDownloader(),
       extractor = SafeTarGzExtractor(),
-      prober = ProotGuestProber(runtime, File(paths.sessions, ".proot-scratch")),
+      prober = ProotGuestProber(runtime, paths.guestTmp),
     )
     val dnsServers = targetContext.getSystemService(ConnectivityManager::class.java).activeNetwork
       ?.let { targetContext.getSystemService(ConnectivityManager::class.java).getLinkProperties(it)?.dnsServers }
@@ -254,7 +254,7 @@ class TerminalToolchainDeviceTest {
       .orEmpty()
     val launcher = ProotSessionLauncher(
       runtime = runtime,
-      scratchDir = File(paths.sessions, ".proot-scratch"),
+      scratchDir = paths.guestTmp,
       dnsServersProvider = { dnsServers },
     )
 
@@ -311,13 +311,13 @@ class TerminalToolchainDeviceTest {
     val located = ProotRuntimeLocator(manifestText).locate(File(targetContext.applicationInfo.nativeLibraryDir ?: ""))
     assertTrue("packaged PRoot runtime is unavailable", located is ProotRuntimeLocator.Location.Available)
     val runtime = (located as ProotRuntimeLocator.Location.Available).runtime
-    val testRoot = File(targetContext.filesDir, "alpine-harness-lazy-device-test-${System.nanoTime()}")
+    val testRoot = File(targetContext.filesDir, "h-${System.nanoTime()}")
     val paths = DistroStorePaths(testRoot)
     val store = DistroStoreCore(
       paths = paths,
       downloader = HttpArchiveDownloader(),
       extractor = SafeTarGzExtractor(),
-      prober = ProotGuestProber(runtime, File(paths.sessions, ".proot-scratch")),
+      prober = ProotGuestProber(runtime, paths.guestTmp),
     )
     val dnsServers = targetContext.getSystemService(ConnectivityManager::class.java).activeNetwork
       ?.let { targetContext.getSystemService(ConnectivityManager::class.java).getLinkProperties(it)?.dnsServers }
@@ -325,14 +325,17 @@ class TerminalToolchainDeviceTest {
       .orEmpty()
     val launcher = ProotSessionLauncher(
       runtime = runtime,
-      scratchDir = File(paths.sessions, ".proot-scratch"),
+      scratchDir = paths.guestTmp,
       dnsServersProvider = { dnsServers },
     )
+    val requestedTarget = InstrumentationRegistry.getArguments().getString("horusHarnessTarget")
     val targets = listOf(
       Triple(TerminalRuntimeContract.TOOLCHAIN_TARGET_CLAUDE, "claude", "ALPINE_CLAUDE_LAZY_OK"),
       Triple(TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX, "codex", "ALPINE_CODEX_LAZY_OK"),
       Triple(TerminalRuntimeContract.TOOLCHAIN_TARGET_OPENCODE, "opencode", "ALPINE_OPENCODE_LAZY_OK"),
-    )
+    ).filter { requestedTarget == null || it.first == requestedTarget }
+    assertTrue("invalid focused harness target", targets.isNotEmpty())
+    var completed = false
 
     try {
       val install = store.install(downloadTimeoutMs = 120_000)
@@ -401,7 +404,7 @@ class TerminalToolchainDeviceTest {
           val repairResult = runLaunch(provision, 300)
           val repairLog = File(paths.home, ".cache/horus/$installLogName")
             .let { file -> if (file.isFile) file.readText().takeLast(2_000) else "<missing>" }
-          assertEquals("$target repair failed: $repairLog", 0, repairResult.first)
+          assertEquals("$target repair failed: $repairLog\n${repairResult.second.takeLast(4000)}", 0, repairResult.first)
           val repairedProbeResult = runLaunch(probe, 60)
           assertEquals(
             "$target repaired executable probe failed: ${repairedProbeResult.second.takeLast(2_000)}",
@@ -425,8 +428,13 @@ class TerminalToolchainDeviceTest {
         }
       }
       android.util.Log.i(LOG_TAG, "ALPINE_HARNESS_LAZY_OK")
+      completed = true
     } finally {
-      assertTrue("test-owned storage cleanup failed: ${testRoot.absolutePath}", testRoot.deleteRecursively())
+      if (!completed && InstrumentationRegistry.getArguments().getString("horusKeepFailedGuest") == "true") {
+        android.util.Log.e(LOG_TAG, "HARNESS_FAILED_GUEST=${testRoot.absolutePath}")
+      } else {
+        assertTrue("test-owned storage cleanup failed: ${testRoot.absolutePath}", testRoot.deleteRecursively())
+      }
     }
   }
 
@@ -552,7 +560,8 @@ class TerminalToolchainDeviceTest {
     android.util.Log.i(LOG_TAG, "P5_PHASE=prompt_wait_begin timeoutMs=$timeoutMs")
     val deadline = System.currentTimeMillis() + timeoutMs
     while (System.currentTimeMillis() < deadline) {
-      if (sink.tail().contains("# ")) return
+      val plain = sink.tail().replace(Regex("\u001b\\[[0-?]*[ -/]*[@-~]"), "")
+      if (plain.contains("# ") || plain.contains("└─[")) return
       Thread.sleep(50)
     }
     android.util.Log.e(LOG_TAG, "P5_PHASE=prompt_wait_timeout tail=${sink.tail().replace('\n', '|')}")

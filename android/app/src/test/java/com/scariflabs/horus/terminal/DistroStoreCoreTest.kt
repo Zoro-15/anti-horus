@@ -83,6 +83,110 @@ class DistroStoreCoreTest {
   )
 
   @Test
+  fun `layout startup prunes orphaned staging files from current and legacy tmp locations`() {
+    val store = newStore()
+    val directories = listOf(store.storage.guestTmp, File(store.storage.sessions, ".proot-scratch"),
+      File(store.storage.versionRootfs(AlpineRootfsCatalog.ROOTFS_ID), "tmp"))
+    val leftovers = directories.map { directory ->
+      directory.mkdirs()
+      File(directory, "proot-2147483647-ABC123").apply { writeText("stale") }
+    }
+    val userFile = File(directories.last(), "user.tmp").apply { writeText("keep") }
+    store.ensureLayout()
+    leftovers.forEach { assertFalse(it.exists()) }
+    assertEquals("keep", userFile.readText())
+  }
+
+  private fun emulatedLink(store: DistroStoreCore, name: String, vararg references: File): Pair<File, File> {
+    val intermediate = File(store.storage.hardlinks, ".l2s.${name}0001")
+    val backing = File(store.storage.hardlinks, "${intermediate.name}.0002").apply { writeText("data:$name") }
+    java.nio.file.Files.createSymbolicLink(intermediate.toPath(), backing.toPath())
+    references.forEach { reference ->
+      reference.parentFile!!.mkdirs()
+      java.nio.file.Files.createSymbolicLink(reference.toPath(), intermediate.toPath())
+    }
+    // Real PRoot backing has host nlink=1 despite multiple surviving aliases.
+    assertEquals(1, (java.nio.file.Files.getAttribute(backing.toPath(), "unix:nlink") as Number).toInt())
+    return intermediate to backing
+  }
+
+  @Test
+  fun `rootfs partial and full resets collect only unreferenced symlink chains`() {
+    val store = newStore()
+    assertTrue(store.install(expectedSha256 = archiveSha256, expectedBytes = archiveBytes.size.toLong()) is DistroStoreCore.InstallOutcome.Success)
+    val rootfs = store.activeRootfsDir()!!
+    val rootOnly = emulatedLink(store, "root", File(rootfs, "bin/package"))
+    val shared = emulatedLink(store, "shared", File(rootfs, "bin/shared"), File(store.storage.home, "shared"), File(store.storage.defaultWorkspace, "shared"))
+    val harness = emulatedLink(store, "harness", File(store.storage.harnessHome("codex"), "shared"))
+    val tmp = emulatedLink(store, "tmp", File(store.storage.guestTmp, "survivor"))
+    val unknown = File(store.storage.hardlinks, "user-file").apply { writeText("keep") }
+    store.reset()
+    assertFalse(rootOnly.first.exists()); assertFalse(rootOnly.second.exists())
+    assertEquals("data:shared", File(store.storage.home, "shared").readText())
+    store.reset(deleteHome = true)
+    assertFalse(harness.second.exists()); assertTrue(shared.second.exists())
+    assertEquals("data:shared", File(store.storage.defaultWorkspace, "shared").readText())
+    store.reset(deleteHome = true, deleteWorkspaces = true)
+    assertFalse(shared.first.exists()); assertFalse(shared.second.exists())
+    assertTrue(tmp.second.exists()); assertEquals("data:tmp", File(store.storage.guestTmp, "survivor").readText())
+    assertEquals("keep", unknown.readText())
+    File(store.storage.guestTmp, "survivor").delete()
+    store.reset()
+    assertFalse(tmp.second.exists()); assertTrue(File(store.storage.hardlinks, ".gc.lock").exists())
+  }
+
+  @Test
+  fun `version replacement collects obsolete backing and retains other versions and user links`() {
+    val store = newStore(); store.ensureLayout()
+    val root = store.storage.versionRootfs(AlpineRootfsCatalog.ROOTFS_ID).apply { mkdirs() }
+    val obsolete = emulatedLink(store, "obsolete", File(root, "old"))
+    val survivor = emulatedLink(store, "other", File(store.storage.versions, "unrelated/rootfs/shared"))
+    val home = emulatedLink(store, "home", File(store.storage.home, "shared"))
+    val outcome = store.install(expectedSha256 = archiveSha256, expectedBytes = archiveBytes.size.toLong())
+    assertTrue(outcome.toString(), outcome is DistroStoreCore.InstallOutcome.Success)
+    assertFalse(obsolete.second.exists()); assertTrue(survivor.second.exists()); assertTrue(home.second.exists())
+    store.reset(deleteHome = true)
+    assertTrue(survivor.second.exists()); assertFalse(home.second.exists())
+  }
+
+  @Test
+  fun `cleanup never follows external symlinks and retains genuine host hardlinks`() {
+    val store = newStore(); store.ensureLayout()
+    val outside = temp.newFolder("outside")
+    val sentinel = File(outside, "keep").apply { writeText("outside") }
+    java.nio.file.Files.createSymbolicLink(File(store.storage.hardlinks, ".l2s.escape0001").toPath(), outside.toPath())
+    java.nio.file.Files.createSymbolicLink(File(store.storage.home, "external").toPath(), outside.toPath())
+    val hostBacking = File(store.storage.hardlinks, ".l2s.host0001.0002").apply { writeText("host data") }
+    java.nio.file.Files.createLink(File(outside, "host-alias").toPath(), hostBacking.toPath())
+    store.reset()
+    assertEquals("outside", sentinel.readText()); assertTrue(hostBacking.exists())
+    assertFalse(java.nio.file.Files.exists(File(store.storage.hardlinks, ".l2s.escape0001").toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS))
+    // Reject symlinked storage parents before any destructive reset operation.
+    store.storage.defaultWorkspace.deleteRecursively()
+    store.storage.defaultWorkspace.parentFile!!.delete()
+    java.nio.file.Files.createSymbolicLink(store.storage.defaultWorkspace.parentFile!!.toPath(), outside.toPath())
+    try { store.reset(deleteWorkspaces = true); throw AssertionError("symlinked parent accepted") } catch (_: IOException) { }
+    assertEquals("outside", sentinel.readText())
+  }
+
+  @Test
+  fun `live storage leases prevent reset and replacement before deletion`() {
+    val store = newStore()
+    assertTrue(store.install(expectedSha256 = archiveSha256, expectedBytes = archiveBytes.size.toLong()) is DistroStoreCore.InstallOutcome.Success)
+    val active = store.readActiveRecord()
+    java.nio.channels.FileChannel.open(File(store.storage.hardlinks, ".gc.lock").toPath(), java.nio.file.StandardOpenOption.READ).use { channel ->
+      channel.lock(0, Long.MAX_VALUE, true).use {
+        try { store.reset(deleteHome = true, deleteWorkspaces = true); throw AssertionError("live reset accepted") } catch (_: IOException) { }
+        val result = store.install(expectedSha256 = archiveSha256, expectedBytes = archiveBytes.size.toLong())
+        assertEquals("storage_busy", (result as DistroStoreCore.InstallOutcome.Failure).reasonCode)
+        assertEquals(active, store.readActiveRecord())
+      }
+    }
+    store.reset()
+    assertNull(store.readActiveRecord())
+  }
+
+  @Test
   fun `happy path installs verifies probes and writes the active record`() {
     val store = newStore()
     // Pre-create a home sentinel: installs must never touch user data.

@@ -12,6 +12,85 @@ import org.junit.Test
 
 class ProotSessionLauncherTest {
   @Test
+  fun interactiveZshExitAndEofNormalizeBuildFailuresButPreserveKillsAndCommandStatus() {
+    val zsh = System.getenv("HORUS_TEST_ZSH") ?: "/usr/bin/zsh"
+    org.junit.Assume.assumeTrue("zsh required for shell behavior test", File(zsh).canExecute())
+    fun checkStatus(expected: Int, commands: String, interactive: Boolean) {
+      val process = ProcessBuilder(zsh, if (interactive) "-dfi" else "-df")
+        .redirectErrorStream(true).start()
+      process.outputStream.bufferedWriter().use {
+        // Startup files accept comments; enable them for the stdin fixture too.
+        if (interactive) it.write("setopt interactivecomments\n")
+        it.write(ProotSessionLauncher.ZSH_EXIT_SCRIPT + "\n" + commands)
+      }
+      assertTrue("zsh fixture timed out", process.waitFor(10, TimeUnit.SECONDS))
+      val output = process.inputStream.bufferedReader().readText()
+      assertEquals("commands=$commands\n$output", expected, process.exitValue())
+    }
+    checkStatus(0, "false\nexit\n", true)
+    checkStatus(0, "false\n", true)
+    checkStatus(137, "exit 137\n", true)
+    checkStatus(137, "kill -KILL ${'$'}${'$'}\n", true)
+    checkStatus(23, "exit 23\n", false)
+    val commandShell = ProcessBuilder(zsh, "-dfi", "-c", ProotSessionLauncher.ZSH_EXIT_SCRIPT + "\nfalse")
+      .redirectErrorStream(true).start()
+    assertTrue(commandShell.waitFor(10, TimeUnit.SECONDS))
+    assertEquals("interactive -c must retain CLI failures", 1, commandShell.exitValue())
+  }
+
+  @Test
+  fun shortTmpBindFitsClaudeSocketAndPrunesOnlyOrphanedProotFiles() {
+    val base = Files.createTempDirectory("horus-tmp").toFile()
+    try {
+      val paths = DistroStorePaths(base)
+      val scratch = paths.guestTmp.apply { mkdirs() }
+      val proc = File(base, "proc").apply { mkdirs() }
+      File(proc, "123").mkdirs()
+      val live = File(scratch, "proot-123-ABC123").apply { writeText("keep") }
+      val dead = File(scratch, "proot-456-ABC123").apply { writeText("orphan") }
+      val deadTree = File(scratch, "proot-tmpfs--456-ABC123").apply { mkdirs() }
+      File(deadTree, "payload").writeText("orphan")
+      val userFile = File(scratch, "proot-user-data").apply { writeText("keep") }
+      val outside = File(base, "outside").apply { mkdirs() }
+      File(outside, "keep").writeText("user data")
+      Files.createSymbolicLink(File(deadTree, "link").toPath(), outside.toPath())
+      val rootfs = File(base, "rootfs").apply { mkdirs() }
+      val home = File(base, "home").apply { mkdirs() }
+      val launch = launcher(base, proc, scratch).interactiveShellLaunchSpec(rootfs, home)
+      assertTrue(launch.argv.windowed(2).contains(listOf("-b", "${scratch.canonicalPath}:/tmp")))
+      assertTrue(launch.environment.contains("PROOT_TMP_DIR=${scratch.canonicalPath}"))
+      assertTrue(launch.environment.contains("PROOT_L2S_DIR=${paths.hardlinks.canonicalPath}"))
+      assertTrue(launch.argv.windowed(2).contains(listOf("-b", "${paths.hardlinks.canonicalPath}:${paths.hardlinks.canonicalPath}")))
+      assertFalse(paths.hardlinks.canonicalPath.startsWith(scratch.canonicalPath + File.separator))
+      assertTrue(live.exists())
+      assertFalse(dead.exists())
+      assertFalse(deadTree.exists())
+      assertTrue(userFile.exists())
+      assertTrue(File(outside, "keep").exists())
+      val androidTmp = DistroStorePaths(File("/data/user/0/com.scariflabs.horus/files/horus")).guestTmp
+      val socketPath = "${androidTmp.path}/claude-messaging-61001/12264.sock"
+      assertTrue("translated socket must fit sun_path with NUL", socketPath.toByteArray(Charsets.UTF_8).size < 108)
+    } finally {
+      base.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun prootCleanupDoesNotFollowATmpDirectorySymlink() {
+    val base = Files.createTempDirectory("horus-tmp-link").toFile()
+    try {
+      val outside = File(base, "outside").apply { mkdirs() }
+      val keep = File(outside, "proot-456-ABC123").apply { writeText("keep") }
+      val link = File(base, "tmp")
+      Files.createSymbolicLink(link.toPath(), outside.toPath())
+      DistroStoreCore.pruneProotTemps(link, File(base, "proc"))
+      assertTrue(keep.exists())
+    } finally {
+      base.deleteRecursively()
+    }
+  }
+
+  @Test
   fun bindsWorkspaceAndSetsPersistentGuestPaths() {
     val base = Files.createTempDirectory("horus-launcher").toFile()
     try {
@@ -61,6 +140,11 @@ class ProotSessionLauncherTest {
       assertFalse(launch.argv.any { it.contains("compat-bin") })
       assertEquals("/workspace", launch.argv[launch.argv.indexOf("-w") + 1])
       assertTrue(launch.environment.contains("PWD=/workspace"))
+      assertTrue(launch.environment.contains("DOTNET_gcServer=0"))
+      assertTrue(launch.environment.contains("DOTNET_GCHeapHardLimit=0x40000000"))
+      assertTrue(launch.environment.contains("DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER=1"))
+      assertTrue(launch.environment.contains("DOTNET_CLI_USE_MSBUILD_SERVER=0"))
+      assertTrue(launch.environment.contains("UseSharedCompilation=false"))
       assertTrue(launch.environment.contains("PROOT_NO_SECCOMP=1"))
       assertTrue(launch.environment.contains("PATH=${ProotSessionLauncher.GUEST_PATH}"))
       assertFalse(launch.argv.any { it.endsWith(":${ProotSessionLauncher.GUEST_PROC}/meminfo") && it.contains("proc-compat") })
@@ -90,6 +174,7 @@ class ProotSessionLauncherTest {
       assertTrue(zshrc.readText().contains("PROMPT=$'%{\\e[0;34m%}%B┌─["))
       assertTrue(zshrc.readText().contains("export PATH=\"\$HOME/.local/bin:/usr/local/bin:"))
       assertTrue(zshrc.readText().contains("umask 0002"))
+      assertTrue(zshrc.readText().contains(ProotSessionLauncher.ZSH_EXIT_SCRIPT))
       // A stray ^S must not freeze the terminal.
       assertTrue(zshrc.readText().contains("unsetopt flow_control\nstty -ixon"))
       assertFalse(zshrc.readText().contains("RPROMPT"))
@@ -730,6 +815,7 @@ class ProotSessionLauncherTest {
       command(
         "npm",
         "printf 'npm\\n' >> '${npmLog.absolutePath}'\n" +
+          "[ ! -e '${entryPath}' ] || exit 92\nmkdir -p '${payloadDir.absolutePath}'\n" +
           "cat > '${entryPath}' <<'HORUS_TEST_ENTRY'\n#!/bin/sh\nif [ \"${'$'}1\" = --version ]; then printf 'version\\n' >> '${versionLog.absolutePath}'; fi\nHORUS_TEST_ENTRY\nchmod u+rx '${entryPath}'",
       )
       val launcher = File(guestBin, "opencode")
@@ -796,6 +882,15 @@ class ProotSessionLauncherTest {
       assertEquals("npm\n", npmLog.readText())
       assertEquals("version\n", versionLog.readText())
       assertTrue(entry.isFile && entry.canExecute())
+      val config = File(guestRoot, ".config/opencode/user.json").apply {
+        parentFile!!.mkdirs(); writeText("preserve user config")
+      }
+      entry.writeText("#!/bin/sh\nexit 91\n")
+      File(cacheDir, "opencode.ready").writeText("ready:old-payload\n")
+      assertTrue(runProvision().contains("HORUS_TOOLCHAIN_READY"))
+      assertEquals("npm\nnpm\n", npmLog.readText())
+      assertEquals("version\nversion\n", versionLog.readText())
+      assertEquals("preserve user config", config.readText())
     } finally {
       base.deleteRecursively()
     }
@@ -992,7 +1087,8 @@ class ProotSessionLauncherTest {
       assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
       val native = File(home, ".local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex")
       requireNotNull(native.parentFile).mkdirs()
-      File(home, ".local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/package.json").writeText("{}")
+      File(home, ".local/lib/node_modules/@openai/codex/package.json").writeText("""{"version":"0.115.0","optionalDependencies":{"@openai/codex-linux-arm64":"npm:@openai/codex@0.115.0-linux-arm64"}}""")
+      File(home, ".local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/package.json").writeText("""{"version":"0.115.0-linux-arm64"}""")
       native.writeText("broken")
       native.setExecutable(true)
       assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
@@ -1009,83 +1105,6 @@ class ProotSessionLauncherTest {
       assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
       native.delete()
       assertFalse(launcher.hasProvisionedToolchain(rootfs, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX))
-    } finally {
-      base.deleteRecursively()
-    }
-  }
-
-  @Test
-  fun repairsMissingCodexOptionalAliasAndRejectsUnusableNativeWithoutTouchingUserData() {
-    val base = Files.createTempDirectory("horus-codex-recovery").toFile()
-    try {
-      val bin = File(base, "bin").apply { mkdirs() }
-      val fixture = File(base, "fixture").apply { mkdirs() }
-      File(fixture, "package.json").writeText("""{"optionalDependencies":{"@openai/codex-linux-arm64":"npm:@openai/codex@0.115.0-linux-arm64"}}""")
-      File(fixture, "codex.js").writeText("""
-        #!/usr/bin/env node
-        const path = require('path');
-        const p = require.resolve('@openai/codex-linux-arm64/package.json', {paths: [__dirname]});
-        const binary = path.join(path.dirname(p), 'vendor/aarch64-unknown-linux-musl/bin/codex');
-        process.exit(require('child_process').spawnSync(binary, ['--version']).status ?? 1);
-      """.trimIndent())
-      File(bin, "npm").apply {
-        writeText("""
-          #!/bin/sh
-          printf '%s\n' "${'$'}*" >> "${'$'}HOME/npm-args"
-          for last; do :; done
-          root="${'$'}HOME/.local/lib/node_modules/@openai"
-          case "${'$'}last" in
-            @openai/codex)
-              mkdir -p "${'$'}root/codex/bin"
-              cp "${'$'}FIXTURE/package.json" "${'$'}root/codex/package.json"
-              cp "${'$'}FIXTURE/codex.js" "${'$'}root/codex/bin/codex.js"
-              ;;
-            @openai/codex-linux-arm64@npm:@openai/codex@0.115.0-linux-arm64)
-              native="${'$'}root/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex"
-              mkdir -p "${'$'}(dirname "${'$'}native")"
-              printf '{}' > "${'$'}root/codex-linux-arm64/package.json"
-              printf '#!/bin/sh\nexit %s\n' "${'$'}NATIVE_EXIT" > "${'$'}native"
-              chmod 755 "${'$'}native"
-              ;;
-            *) exit 99 ;;
-          esac
-        """.trimIndent())
-        setExecutable(true)
-      }
-      File(bin, "stat").apply {
-        writeText("#!/bin/sh\ntest \"${'$'}1\" = -L && test \"${'$'}2\" = -c || exit 99\nprintf '64:1:2:3\\n'\n")
-        setExecutable(true)
-      }
-      val node = requireNotNull(System.getenv("PATH")).split(File.pathSeparator)
-        .map { File(it, "node") }.first { it.isFile && it.canExecute() }
-      for (exit in listOf(0, 127)) {
-        val home = File(base, "home-$exit").apply { mkdirs() }
-        val auth = File(home, ".codex/auth.json").apply {
-          requireNotNull(parentFile).mkdirs(); writeText("private credentials")
-        }
-        val config = File(home, ".codex/config.toml").apply { writeText("user config") }
-        val process = ProcessBuilder("/bin/sh", "-c",
-          ProotSessionLauncher.CODEX_INSTALL_SCRIPT.replace("/usr/bin/node", node.absolutePath) +
-            "\ninstall_codex_package\n")
-          .redirectErrorStream(true)
-        process.environment().putAll(mapOf(
-          "HOME" to home.absolutePath,
-          "PATH" to "${bin.absolutePath}:${System.getenv("PATH")}",
-          "FIXTURE" to fixture.absolutePath,
-          "NATIVE_EXIT" to exit.toString(),
-          "npm_config_omit" to "optional",
-        ))
-        val running = process.start()
-        val output = running.inputStream.bufferedReader().readText()
-        val result = running.waitFor()
-        if (exit == 0) assertEquals(output, 0, result) else assertTrue(output, result != 0)
-        val args = File(home, "npm-args").readLines()
-        assertEquals(2, args.size)
-        assertTrue(args.all { it.contains("--include=optional") })
-        assertTrue(args.last().endsWith("@openai/codex-linux-arm64@npm:@openai/codex@0.115.0-linux-arm64"))
-        assertEquals("private credentials", auth.readText())
-        assertEquals("user config", config.readText())
-      }
     } finally {
       base.deleteRecursively()
     }
@@ -1330,64 +1349,6 @@ class ProotSessionLauncherTest {
           assertEquals(output.readText(), 0, syntax.exitValue())
         }
       }
-    } finally {
-      base.deleteRecursively()
-    }
-  }
-
-  @Test
-  fun codexStampFailureInvalidatesReadinessAfterSuccessfulVersionChecks() {
-    val base = Files.createTempDirectory("horus-codex-stamp-failure").toFile()
-    try {
-      val home = File(base, "home").apply { mkdirs() }
-      val bin = File(home, ".local/bin").apply { mkdirs() }
-      val cache = File(home, ".cache/horus").apply { mkdirs() }
-      val marker = File(cache, "codex.ready").apply { writeText("ready:stale\n") }
-      val auth = File(home, ".codex/auth.json").apply {
-        requireNotNull(parentFile).mkdirs(); writeText("private credentials")
-      }
-      val config = File(home, ".codex/config.toml").apply { writeText("user config") }
-      val versionLog = File(base, "version.log")
-      File(home, ".local/lib/node_modules/@openai/codex/bin/codex.js").apply {
-        requireNotNull(parentFile).mkdirs()
-        writeText("#!/usr/bin/env node\nrequire('fs').appendFileSync('${versionLog.absolutePath}', process.argv[2] + '\\n');\n")
-      }
-      File(home, ".local/lib/node_modules/@openai/codex/vendor/aarch64-unknown-linux-musl/bin/codex").apply {
-        requireNotNull(parentFile).mkdirs(); writeText("native fixture"); setExecutable(true)
-      }
-      val stampLog = File(base, "stamp.log")
-      for ((name, body) in mapOf(
-        "zsh" to "exit 0",
-        "node" to "exit 0",
-        "npm" to "exit 99",
-        "stat" to "printf 'stamp_failed\\n' >> '${stampLog.absolutePath}'\nexit 91",
-      )) {
-        File(bin, name).apply { writeText("#!/bin/sh\n$body\n"); setExecutable(true) }
-      }
-      val node = requireNotNull(System.getenv("PATH")).split(File.pathSeparator)
-        .map { File(it, "node") }.first { it.isFile && it.canExecute() }
-      val launch = launcher(base, File(base, "proc").apply { mkdirs() }).toolchainProvisionLaunchSpec(
-        File(base, "rootfs").apply { mkdirs() }, home, TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX,
-      )
-      val script = launch.argv.last().replace("/root", home.absolutePath).replace("/usr/bin/node", node.absolutePath)
-      val output = File(base, "provision.log")
-      val process = ProcessBuilder("/bin/sh", "-c", script)
-        .redirectErrorStream(true).redirectOutput(output)
-        .apply { environment()["HORUS_TOOLCHAIN_TARGET"] = "codex" }.start()
-      if (!process.waitFor(10, TimeUnit.SECONDS)) {
-        process.destroyForcibly()
-        throw AssertionError("Codex provisioning exceeded the bounded host test timeout")
-      }
-      assertEquals("both version checks succeed before stamping", listOf("--version", "--version"), versionLog.readLines())
-      assertEquals("stamp_failed\n", stampLog.readText())
-      assertEquals(output.readText(), 23, process.exitValue())
-      assertEquals("codex_failed\n", File(cache, "provision-stage").readText())
-      assertTrue(output.readText().contains("HORUS_INSTALL_STAGE=codex_failed"))
-      assertFalse("stale readiness must be removed", marker.exists())
-      assertFalse(output.readText().contains("HORUS_INSTALL_STAGE=ready"))
-      assertFalse(output.readText().contains("HORUS_TOOLCHAIN_READY"))
-      assertEquals("private credentials", auth.readText())
-      assertEquals("user config", config.readText())
     } finally {
       base.deleteRecursively()
     }

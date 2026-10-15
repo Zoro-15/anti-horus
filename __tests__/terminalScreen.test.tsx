@@ -1071,7 +1071,7 @@ describe('TerminalScreen', () => {
     await press('terminal-key-arrow-right');
 
     const writes = (runtime.spec.writeSessionInput as jest.Mock).mock.calls.map(call => new TextDecoder().decode(decodeTestBase64(call[0].base64)));
-    expect(writes).toEqual(['\u001b[A', '\u001b[1;5D', 'c', '\u001b[1;7B', '\u0001', 'b', '\u001b\t', '\u001b', '\u001b[C']);
+    expect(writes).toEqual(['\u001b[A', '\u001b[1;5D', 'c', '\u001b[1;7B', '\u0001', 'b', '\t', '\u001b', '\u001b[C']);
     await ReactTestRenderer.act(async () => { renderer.unmount(); await flushAsync(); });
   });
 

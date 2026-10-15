@@ -158,6 +158,15 @@ class RemoteAccessTest {
       assertTrue(binds.contains("${File(hostDev, "pts").absolutePath}:/dev/pts"))
       assertEquals(listOf("horus-remote-access", "horus", "1000", "1000", "8022"), launch.argv.takeLast(5))
       val script = launch.argv[launch.argv.size - 6]
+      assertTrue(script.contains(ProotSessionLauncher.DOTNET_ENV_SCRIPT))
+      assertTrue(script.contains(ProotSessionLauncher.ZSH_EXIT_SCRIPT))
+      for (terminator in listOf("HORUS_SHELL", "HORUS_INSTALLER", "HORUS_ZSH")) {
+        assertEquals("$terminator must terminate its heredoc at column zero", 1, script.lines().count { it == terminator })
+        assertFalse(script.lines().any { it.trim() == terminator && it != terminator })
+      }
+      val syntax = ProcessBuilder("/bin/sh", "-n", "-c", script).redirectErrorStream(true).start()
+      val syntaxOutput = syntax.inputStream.bufferedReader().readText()
+      assertEquals(syntaxOutput, 0, syntax.waitFor())
       assertTrue(script.contains("-p \"127.0.0.1:"))
       assertTrue(script.contains("dropbear -F -E -s -w "))
       assertTrue(script.contains("busybox su -s /bin/sh -c"))
