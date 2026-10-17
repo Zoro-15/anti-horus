@@ -15,7 +15,7 @@ jobs:
     name: Build APK
     runs-on: ubuntu-latest
     env:
-      ANDROID_USER_HOME: ${{ runner.temp }}/.android
+      ANDROID_USER_HOME: /tmp/.android
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
