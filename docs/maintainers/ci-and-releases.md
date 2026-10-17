@@ -204,4 +204,7 @@ the private form in [Security](https://github.com/scarif-labs/horus/security)
 remains available. The audit found Dependabot security updates, secret scanning
 and push protection disabled. Maintainers should review enabling these settings
 and the Actions allowlist/token policy separately. This PR changes none of those
-live settings. Follow the [security policy](../../.github/SECURITY.md) for reports.
+live settings. Actions currently allows all actions without a repository-wide
+SHA-pin requirement; the default workflow token is read-only and PR approval by
+workflows is disabled. Follow the [security policy](../../.github/SECURITY.md)
+for reports.
