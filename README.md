@@ -209,6 +209,11 @@ npm run test:kotlin              # JVM unit tests for the native layer
 npm run test:android:connected   # instrumented tests on a connected device
 ```
 
+PRs and pushes to `main` run Node checks, host native regressions, Android JVM
+tests, and unsigned release APK validation. See the
+[CI and release maintainer guide](docs/maintainers/ci-and-releases.md) for the
+pinned toolchain, local commands, required checks, and release acceptance.
+
 </details>
 
 <details>
