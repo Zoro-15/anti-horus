@@ -1633,16 +1633,16 @@ ${ZSH_EXIT_SCRIPT.prependIndent("      ")}
             cat > /root/.local/bin/agy <<'EOF'
 #!/bin/sh
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import google.antigravity' >/dev/null 2>&1; then
-  exec python3 -m google.antigravity "$@"
-elif [ -f "$HOME/.local/bin/agy.js" ]; then
-  exec /usr/bin/node "$HOME/.local/bin/agy.js" "$@"
+  exec python3 -m google.antigravity "${'$'}@"
+elif [ -f "${'$'}HOME/.local/bin/agy.js" ]; then
+  exec /usr/bin/node "${'$'}HOME/.local/bin/agy.js" "${'$'}@"
 else
   printf '%s\n' "Google Antigravity CLI (agy) active."
   printf '%s\n' "Configure your environment with: export GEMINI_API_KEY=<your-key>"
-  if [ $# -eq 0 ]; then
+  if [ "${'$'}#" -eq 0 ]; then
     exec zsh -l
   else
-    exec "$@"
+    exec "${'$'}@"
   fi
 fi
 EOF
@@ -1710,6 +1710,8 @@ EOF
             mark_provision_stage normalize_failed
             exit 25
           fi
+        elif [ "${'$'}target" = antigravity ]; then
+          test -x /root/.local/bin/agy
         else
           if ! {
             opencode_entry=/root/.local/lib/node_modules/opencode-ai/bin/opencode
