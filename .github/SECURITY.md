@@ -5,13 +5,12 @@
 Do not disclose vulnerability details, working exploits, credentials, private
 logs, or affected users' information in public Issues or Discussions.
 
-As checked on October 12, 2026, GitHub private vulnerability reporting is **not
-enabled** for this repository, and the project has not published a dedicated
-security contact. The [Security page](https://github.com/scarif-labs/horus/security)
-is the place to check for an updated reporting route. If GitHub shows **Report a
-vulnerability**, use that private form. Do not assume a public issue is private.
+As checked on October 18, 2026, GitHub private vulnerability reporting is
+**enabled** for this repository. Use **Report a vulnerability** on the
+[Security page](https://github.com/scarif-labs/horus/security) to send a private
+report. Do not assume a public issue is private.
 
-Until a private route exists, you may post only a minimal request for a private
+If the private form becomes unavailable, you may post only a minimal request for a private
 security reporting channel, without details that identify or enable the
 vulnerability. Wait for a maintainer to establish that route before sending
 sensitive information. Do not send a Horus vulnerability to GitHub's own bug
