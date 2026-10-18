@@ -95,28 +95,16 @@ function controlCharacter(character: string): string {
   if (character === ' ' || character === '\t') return character === ' ' ? '\u0000' : '\t';
   const code = character.codePointAt(0);
   if (code === undefined || code > 0x7e) return character;
-  if ((code >= 0x40 && code <= 0x5f) || (code >= 0x60 && code <= 0x7e)) {
-    return String.fromCharCode(code & 0x1f);
-  }
-  return character;
+  return (code >= 0x40 && code <= 0x5f) || (code >= 0x60 && code <= 0x7e) ? String.fromCharCode(code & 0x1f) : character;
 }
 
-function applyTerminalModifiers(value: string, ctrl: boolean, alt: boolean): string {
-  return Array.from(value).map(character => {
-    const modified = ctrl ? controlCharacter(character) : character;
-    return alt && character !== '\t' && character !== '\u001b' ? `\u001b${modified}` : modified;
-  }).join('');
-}
-
-/**
- * CTRL and ALT are one-shot, like Termux: they modify the next key only. A
- * latched CTRL turned the next command into control codes, and its ^S froze
- * the terminal with no visible way out.
- */
 function applyOneShotModifiers(value: string, ctrl: boolean, alt: boolean): string {
-  if (!ctrl && !alt) return value;
-  const [first = '', ...rest] = Array.from(value);
-  return applyTerminalModifiers(first, ctrl, alt) + rest.join('');
+  if ((!ctrl && !alt) || !value) return value;
+  const chars = Array.from(value);
+  const first = chars[0];
+  const mod = ctrl ? controlCharacter(first) : first;
+  const prefixed = alt && first !== '\t' && first !== '\u001b' ? `\u001b${mod}` : mod;
+  return prefixed + chars.slice(1).join('');
 }
 
 function arrowSequence(direction: TerminalArrow, ctrl: boolean, alt: boolean): string {
@@ -124,14 +112,12 @@ function arrowSequence(direction: TerminalArrow, ctrl: boolean, alt: boolean): s
   return modifier === 0 ? `\u001b[${direction}` : `\u001b[1;${modifier + 1}${direction}`;
 }
 
-
 function errorLabel(operation: TrustedSessionOperation | {kind: 'error'; errorCode: string} | {kind: 'incomplete'}): string {
   return operation.kind === 'error' ? operation.errorCode : operation.kind === 'incomplete' ? 'incomplete_stop' : 'unknown_error';
 }
 
 function toolchainInstallError(target: TerminalToolchainTarget): string {
   if (target === 'github') return 'toolchain_github_install_failed';
-  if (target === 'claude') return 'toolchain_install_failed';
   if (target === 'codex') return 'toolchain_codex_install_failed';
   if (target === 'opencode') return 'toolchain_opencode_install_failed';
   if (target === 'antigravity') return 'toolchain_antigravity_install_failed';
@@ -146,10 +132,6 @@ function hasExactOutputLine(value: string, expected: string): boolean {
   return value.split(/[\r\n]/).some(line => line === expected);
 }
 
-/**
- * Returns the kept tail plus `chunk` for scanning, and keeps the last
- * `tailLength` characters of it so a marker split across chunks still matches.
- */
 function appendToOutputTail(tailRef: {current: string}, chunk: string, tailLength: number): string {
   const scanText = `${tailRef.current}${chunk}`;
   tailRef.current = scanText.slice(-tailLength);
@@ -166,14 +148,20 @@ type TerminalHeaderProps = Readonly<{
 }>;
 
 const TerminalHeader = React.memo(function TerminalHeaderView({onBack, onHome}: TerminalHeaderProps): React.JSX.Element {
+  const handlePress = onHome ?? onBack;
   return (
     <View pointerEvents="box-none" style={styles.floatingHeader} testID="terminal-floating-header">
-      {(onHome ?? onBack) !== undefined ? (
-        <Pressable accessibilityLabel="Back to home" accessibilityRole="button" onPress={onHome ?? onBack} style={styles.floatingGroup} testID="terminal-home">
+      {handlePress !== undefined ? (
+        <Pressable accessibilityLabel="Back to home" accessibilityRole="button" onPress={handlePress} style={styles.floatingGroup} testID="terminal-home">
           <BrandMark accessible={false} size={28} />
           <Text style={styles.menuArrowText}>←</Text>
         </Pressable>
-      ) : <View style={styles.floatingGroup}><BrandMark accessible={false} size={28} /><Text style={styles.menuArrowText}>←</Text></View>}
+      ) : (
+        <View style={styles.floatingGroup}>
+          <BrandMark accessible={false} size={28} />
+          <Text style={styles.menuArrowText}>←</Text>
+        </View>
+      )}
     </View>
   );
 });
@@ -460,8 +448,7 @@ export function TerminalScreen({client: providedClient, runtime = undefined, onB
   }, [client, disposeAttachment, handleSessionExited]);
 
   const readRuntimeStatus = React.useCallback(async (): Promise<TerminalRuntimeStatusView> => {
-    if (runtime === undefined) return readTerminalRuntimeStatus();
-    return readTerminalRuntimeStatus(runtime as Spec);
+    return readTerminalRuntimeStatus(runtime as Spec | undefined);
   }, [runtime]);
 
   const setRuntimeFailure = React.useCallback((errorCode: string) => {
@@ -737,9 +724,7 @@ export function TerminalScreen({client: providedClient, runtime = undefined, onB
         return;
       }
       if (status.runtimeState === 'not_installed') {
-        const installed = runtime === undefined
-          ? await installRootfs(nextRequestId('install'))
-          : await installRootfs(nextRequestId('install'), runtime);
+        const installed = await installRootfs(nextRequestId('install'), runtime as Spec | undefined);
         if (!mountedRef.current) return;
         if (installed.kind !== 'success') {
           setRuntimeFailure(installed.errorCode);

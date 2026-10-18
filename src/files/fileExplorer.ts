@@ -2,15 +2,15 @@ import {PermissionsAndroid, Platform} from 'react-native';
 import nativeTerminalRuntime, {type Spec as TerminalRuntimeSpec} from '../native/NativeTerminalRuntime';
 import {buildZshScriptCommand, shellQuote} from '../terminal/commandFactory';
 import {createRequestIdFactory} from '../terminal/requestIds';
-import {decodeBase64} from '../terminal/session/sessionContract';
+import {
+  decodeBase64,
+  TERMINAL_SESSION_MAX_COMMAND_LENGTH,
+  type TerminalSessionOperationErrorCode,
+} from '../terminal/session/sessionContract';
 import {
   TerminalSessionClient,
   type TerminalSessionAttachment,
 } from '../terminal/session/sessionClient';
-import {
-  TERMINAL_SESSION_MAX_COMMAND_LENGTH,
-  type TerminalSessionOperationErrorCode,
-} from '../terminal/session/sessionContract';
 
 export type GuestFileRoot = 'home' | 'workspace';
 export type GuestFilePath = readonly string[];
@@ -47,7 +47,6 @@ export type GuestFileContentResult =
 
 export const GUEST_FILE_LIST_LIMIT = 200 as const;
 export const GUEST_FILE_PREVIEW_LIMIT_BYTES = 65_536 as const;
-// Shell provisioning can install zsh on the first file-browser visit.
 export const GUEST_FILE_QUERY_TIMEOUT_MS = 60_000 as const;
 export const GUEST_FILE_QUERY_MAX_OUTPUT_BYTES = 131_072 as const;
 
@@ -56,12 +55,7 @@ const MAX_PATH_COMPONENT_BYTES = 255;
 const MAX_QUOTED_PATH_LENGTH = 2048;
 const MARKER_PREFIX = 'HORUS_FILE_QUERY';
 const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/;
-const FILE_KINDS: readonly GuestFileEntry['kind'][] = [
-  'directory',
-  'file',
-  'symlink',
-  'other',
-];
+const FILE_KINDS: readonly GuestFileEntry['kind'][] = ['directory', 'file', 'symlink', 'other'];
 const DIRECTORY_STATUSES = ['ok', 'invalid_path', 'not_found', 'command_failed'] as const;
 const CONTENT_STATUSES = ['ok', 'invalid_path', 'not_found', 'too_large', 'command_failed'] as const;
 
@@ -91,7 +85,7 @@ function isValidGuestFilePath(path: unknown): path is GuestFilePath {
   for (const component of path) {
     if (
       typeof component !== 'string' ||
-      component.length === 0 ||
+      !component ||
       component === '.' ||
       component === '..' ||
       component.includes('/') ||
@@ -137,10 +131,9 @@ export function buildListGuestDirectoryCommand(
     throw new Error('invalid guest file query path');
   }
   const {begin, end} = markerLines(markerId);
-  const anchor = root === 'home' ? 'target="$HOME"' : "target='/workspace'";
   const lines = [
     `printf '%s\\n' '${begin}'`,
-    anchor,
+    root === 'home' ? 'target="$HOME"' : "target='/workspace'",
     'query_status=ok',
     'truncated=0',
     'if [ -L "$target" ] || [ ! -d "$target" ]; then query_status=not_found; fi',
@@ -184,17 +177,16 @@ export function buildReadGuestTextFileCommand(
     throw new Error('invalid guest file query path');
   }
   const {begin, end} = markerLines(markerId);
-  const anchor = root === 'home' ? 'target="$HOME"' : "target='/workspace'";
   const lines = [
     `printf '%s\\n' '${begin}'`,
-    anchor,
+    root === 'home' ? 'target="$HOME"' : "target='/workspace'",
     'query_status=ok',
     'size=0',
   ];
   for (let index = 0; index < path.length; index += 1) {
-    const component = path[index];
+    const isLast = index === path.length - 1 ? '1' : '0';
     lines.push(
-      `if [ "$query_status" = ok ]; then target="$target"/${shellQuote(component)}; if [ -L "$target" ]; then query_status=invalid_path; elif [ ! -e "$target" ]; then query_status=not_found; elif [ ${index === path.length - 1 ? '1' : '0'} -eq 0 ] && [ ! -d "$target" ]; then query_status=not_found; fi; fi`,
+      `if [ "$query_status" = ok ]; then target="$target"/${shellQuote(path[index])}; if [ -L "$target" ]; then query_status=invalid_path; elif [ ! -e "$target" ]; then query_status=not_found; elif [ ${isLast} -eq 0 ] && [ ! -d "$target" ]; then query_status=not_found; fi; fi`,
     );
   }
   lines.push(
@@ -229,16 +221,18 @@ function parseMarkerBlock(output: string, markerId: string): MarkerBlock | null 
   if (!isValidMarkerId(markerId)) return null;
   const {begin, end} = markerLines(markerId);
   const lines = stripTerminalControlSequences(output).split('\n');
-  const beginIndexes: number[] = [];
-  const endIndexes: number[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    if (lines[index] === begin) beginIndexes.push(index);
-    if (lines[index] === end || lines[index].startsWith(`${end}|`)) endIndexes.push(index);
+  const beginIndex = lines.indexOf(begin);
+  if (beginIndex < 0 || lines.lastIndexOf(begin) !== beginIndex) return null;
+
+  let endIndex = -1;
+  for (let index = beginIndex + 1; index < lines.length; index += 1) {
+    if (lines[index] === end || lines[index].startsWith(`${end}|`)) {
+      if (endIndex >= 0) return null;
+      endIndex = index;
+    }
   }
-  if (beginIndexes.length !== 1 || endIndexes.length !== 1) return null;
-  const beginIndex = beginIndexes[0];
-  const endIndex = endIndexes[0];
-  if (beginIndex >= endIndex) return null;
+  if (endIndex < 0) return null;
+
   return {
     lines: lines.slice(beginIndex + 1, endIndex),
     footer: lines[endIndex].split('|'),
@@ -252,57 +246,15 @@ function parseSafeSize(value: string): number | null {
 }
 
 function decodeStrictUtf8(bytes: Uint8Array): string | null {
-  let offset = 0;
-  while (offset < bytes.byteLength) {
-    const first = bytes[offset];
-    if (first <= 0x7f) {
-      offset += 1;
-      continue;
-    }
-
-    let continuationCount: number;
-    if (first >= 0xc2 && first <= 0xdf) {
-      continuationCount = 1;
-    } else if (first >= 0xe0 && first <= 0xef) {
-      continuationCount = 2;
-    } else if (first >= 0xf0 && first <= 0xf4) {
-      continuationCount = 3;
-    } else {
-      return null;
-    }
-
-    if (offset + continuationCount >= bytes.byteLength) return null;
-    const second = bytes[offset + 1];
-    if (
-      (second & 0xc0) !== 0x80 ||
-      (first === 0xe0 && second < 0xa0) ||
-      (first === 0xed && second > 0x9f) ||
-      (first === 0xf0 && second < 0x90) ||
-      (first === 0xf4 && second > 0x8f)
-    ) {
-      return null;
-    }
-    for (let index = 2; index <= continuationCount; index += 1) {
-      if ((bytes[offset + index] & 0xc0) !== 0x80) return null;
-    }
-    offset += continuationCount + 1;
-  }
-
   try {
-    return new TextDecoder('utf-8').decode(bytes);
+    return new TextDecoder('utf-8', {fatal: true}).decode(bytes);
   } catch {
     return null;
   }
 }
 
 function safeEntryName(value: string): boolean {
-  return (
-    value.length > 0 &&
-    value !== '.' &&
-    value !== '..' &&
-    !value.includes('/') &&
-    !value.includes('\0')
-  );
+  return !!value && value !== '.' && value !== '..' && !value.includes('/') && !value.includes('\0');
 }
 
 /** Strictly parses only the unique, exact marker block for this query. */
@@ -312,7 +264,7 @@ export function parseGuestDirectoryOutput(
 ): GuestDirectoryResult {
   const block = parseMarkerBlock(output, markerId);
   const invalid = (): GuestDirectoryResult => ({kind: 'error', errorCode: 'invalid_output'});
-  if (block === null) return invalid();
+  if (!block) return invalid();
   const [endMarker, status, truncatedValue] = block.footer;
   if (
     endMarker !== markerLines(markerId).end ||
@@ -329,34 +281,46 @@ export function parseGuestDirectoryOutput(
   const seenNames = new Set<string>();
   let hiddenInvalidNameCount = 0;
   for (const line of block.lines) {
-    if (line.length === 0 || entries.length >= GUEST_FILE_LIST_LIMIT) {
-      return invalid();
-    }
+    if (!line || entries.length >= GUEST_FILE_LIST_LIMIT) return invalid();
     const fields = line.split('\t');
-    if (fields.length !== 3) return invalid();
-    if (fields[0].length % 4 !== 0 || !BASE64_PATTERN.test(fields[0])) {
+    if (fields.length !== 3 || fields[0].length % 4 !== 0 || !BASE64_PATTERN.test(fields[0])) {
       return invalid();
     }
     const nameBytes = decodeBase64(fields[0]);
-    if (nameBytes === null) return invalid();
     const sizeBytes = parseSafeSize(fields[2]);
-    if (!FILE_KINDS.includes(fields[1] as GuestFileEntry['kind'])) return invalid();
-    if (sizeBytes === null) return invalid();
+    if (!nameBytes || sizeBytes === null || !FILE_KINDS.includes(fields[1] as GuestFileEntry['kind'])) {
+      return invalid();
+    }
     const name = decodeStrictUtf8(nameBytes);
     if (name === null) {
       hiddenInvalidNameCount += 1;
       continue;
     }
-    if (!safeEntryName(name)) return invalid();
-    if (seenNames.has(name)) return invalid();
+    if (!safeEntryName(name) || seenNames.has(name)) return invalid();
     seenNames.add(name);
     entries.push({name, kind: fields[1] as GuestFileEntry['kind'], sizeBytes});
   }
   const truncated = truncatedValue === '1';
-  if (truncated && entries.length !== GUEST_FILE_LIST_LIMIT) {
-    return invalid();
-  }
+  if (truncated && entries.length !== GUEST_FILE_LIST_LIMIT) return invalid();
   return {kind: 'success', entries, truncated, hiddenInvalidNameCount};
+}
+
+/** Shared by the PTY parser and the native mapping so both classify bytes identically. */
+function decodePreviewPayload(payload: string, sizeBytes: number): GuestFileContentResult {
+  if (payload.length > Math.ceil(GUEST_FILE_PREVIEW_LIMIT_BYTES / 3) * 4) {
+    return {kind: 'error', errorCode: 'too_large'};
+  }
+  const bytes = payload.length === 0 ? new Uint8Array() : decodeBase64(payload);
+  if (!bytes) return {kind: 'error', errorCode: 'invalid_output'};
+  if (bytes.byteLength > GUEST_FILE_PREVIEW_LIMIT_BYTES) {
+    return {kind: 'error', errorCode: 'too_large'};
+  }
+  if (bytes.byteLength !== sizeBytes) return {kind: 'error', errorCode: 'invalid_output'};
+  const content = decodeStrictUtf8(bytes);
+  if (content === null || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(content)) {
+    return {kind: 'error', errorCode: 'binary_or_invalid_text'};
+  }
+  return {kind: 'success', content, sizeBytes};
 }
 
 /** Strictly parses and validates the capped base64 preview block. */
@@ -365,7 +329,7 @@ export function parseGuestTextFileOutput(
   markerId: string,
 ): GuestFileContentResult {
   const block = parseMarkerBlock(output, markerId);
-  if (block === null) return {kind: 'error', errorCode: 'invalid_output'};
+  if (!block) return {kind: 'error', errorCode: 'invalid_output'};
   const [endMarker, status, rawSize] = block.footer;
   if (
     endMarker !== markerLines(markerId).end ||
@@ -383,34 +347,6 @@ export function parseGuestTextFileOutput(
   return decodePreviewPayload(block.lines[0].slice('DATA|'.length), sizeBytes);
 }
 
-/** Shared by the PTY parser and the native mapping so both classify bytes identically. */
-function decodePreviewPayload(payload: string, sizeBytes: number): GuestFileContentResult {
-  if (payload.length > Math.ceil(GUEST_FILE_PREVIEW_LIMIT_BYTES / 3) * 4) {
-    return {kind: 'error', errorCode: 'too_large'};
-  }
-  const bytes = payload.length === 0 ? new Uint8Array() : decodeBase64(payload);
-  if (bytes === null) return {kind: 'error', errorCode: 'invalid_output'};
-  if (bytes.byteLength > GUEST_FILE_PREVIEW_LIMIT_BYTES) {
-    return {kind: 'error', errorCode: 'too_large'};
-  }
-  if (bytes.byteLength !== sizeBytes) return {kind: 'error', errorCode: 'invalid_output'};
-  const content = decodeStrictUtf8(bytes);
-  if (content === null || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(content)) {
-    return {kind: 'error', errorCode: 'binary_or_invalid_text'};
-  }
-  return {kind: 'success', content, sizeBytes};
-}
-
-function joinOutput(chunks: readonly Uint8Array[], byteLength: number): string {
-  const bytes = new Uint8Array(byteLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
-}
-
 type QueryResult = GuestDirectoryResult | GuestFileContentResult;
 
 async function runGuestQuery<T extends QueryResult>(
@@ -421,40 +357,36 @@ async function runGuestQuery<T extends QueryResult>(
   client: TerminalSessionClient,
 ): Promise<T> {
   return new Promise(resolve => {
-    const chunks: Uint8Array[] = [];
+    let output = '';
     let outputBytes = 0;
     let sessionId: string | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
+    const decoder = new TextDecoder('utf-8');
 
     const clearTimer = () => {
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       timer = undefined;
-    };
-    const stopSession = async (id: string): Promise<boolean> => {
-      client.dispose();
-      try {
-        const stopped = await client.stopSession(nextRequestId(`${action}-stop`), id, 'screen_detach');
-        client.dispose();
-        return stopped.kind === 'success';
-      } catch {
-        client.dispose();
-        return false;
-      }
     };
     const finish = async (result: T, shouldStop: boolean) => {
       if (settled) return;
       settled = true;
       clearTimer();
-      if (sessionId !== undefined && shouldStop) {
-        const stopped = await stopSession(sessionId);
-        if (!stopped) {
+      if (sessionId && shouldStop) {
+        try {
+          const stopped = await client.stopSession(nextRequestId(`${action}-stop`), sessionId, 'screen_detach');
+          if (stopped.kind !== 'success') {
+            client.dispose();
+            resolve({kind: 'error', errorCode: 'teardown_failed'} as T);
+            return;
+          }
+        } catch {
+          client.dispose();
           resolve({kind: 'error', errorCode: 'teardown_failed'} as T);
           return;
         }
-      } else {
-        client.dispose();
       }
+      client.dispose();
       resolve(result);
     };
 
@@ -462,7 +394,7 @@ async function runGuestQuery<T extends QueryResult>(
       void finish({kind: 'error', errorCode: 'timeout'} as T, true);
     }, GUEST_FILE_QUERY_TIMEOUT_MS);
 
-    const onStart = async () => {
+    void (async () => {
       let started;
       try {
         started = await client.startSession(nextRequestId(`${action}-start`), {
@@ -480,20 +412,19 @@ async function runGuestQuery<T extends QueryResult>(
       }
       sessionId = started.sessionId;
       if (settled) {
-        const stopped = await stopSession(sessionId);
-        if (!stopped) client.dispose();
+        void finish({kind: 'error', errorCode: 'timeout'} as T, true);
         return;
       }
 
       const attachment: TerminalSessionAttachment = {
         onOutput: chunk => {
           if (settled) return;
-          if (outputBytes + chunk.bytes.byteLength > GUEST_FILE_QUERY_MAX_OUTPUT_BYTES) {
+          outputBytes += chunk.bytes.byteLength;
+          if (outputBytes > GUEST_FILE_QUERY_MAX_OUTPUT_BYTES) {
             void finish({kind: 'error', errorCode: 'output_too_large'} as T, true);
             return;
           }
-          chunks.push(chunk.bytes.slice());
-          outputBytes += chunk.bytes.byteLength;
+          output += decoder.decode(chunk.bytes, {stream: true});
         },
         onExit: exit => {
           if (settled) return;
@@ -501,7 +432,8 @@ async function runGuestQuery<T extends QueryResult>(
             void finish({kind: 'error', errorCode: 'command_failed'} as T, false);
             return;
           }
-          void finish(parser(joinOutput(chunks, outputBytes), markerId), false);
+          output += decoder.decode();
+          void finish(parser(output, markerId), false);
         },
         onProtocolError: () => {
           void finish({kind: 'error', errorCode: 'invalid_output'} as T, true);
@@ -520,9 +452,7 @@ async function runGuestQuery<T extends QueryResult>(
       } catch {
         await finish({kind: 'error', errorCode: 'invalid_output'} as T, true);
       }
-    };
-
-    void onStart();
+    })();
   });
 }
 
@@ -546,9 +476,7 @@ function nativeRuntimeFor(
   runtime: Partial<GuestFileNativeRuntime> | null | undefined,
   method: keyof GuestFileNativeRuntime,
 ): GuestFileNativeRuntime | null {
-  return runtime !== null && runtime !== undefined && typeof runtime[method] === 'function'
-    ? (runtime as GuestFileNativeRuntime)
-    : null;
+  return runtime && typeof runtime[method] === 'function' ? (runtime as GuestFileNativeRuntime) : null;
 }
 
 function nativeErrorResult(response: Record<string, unknown>): Readonly<{kind: 'error'; errorCode: GuestFileExplorerErrorCode}> {
@@ -586,14 +514,11 @@ export function mapNativeGuestDirectoryResponse(
     if (!isRecord(raw)) return invalid();
     const {name, kind, sizeBytes} = raw;
     if (typeof name !== 'string' || !hasWellFormedSurrogates(name) || !safeEntryName(name)) return invalid();
-    if (!FILE_KINDS.includes(kind as GuestFileEntry['kind'])) return invalid();
-    if (!isSafeSize(sizeBytes)) return invalid();
+    if (!FILE_KINDS.includes(kind as GuestFileEntry['kind']) || !isSafeSize(sizeBytes)) return invalid();
     if (seenNames.has(name)) return invalid();
     seenNames.add(name);
     entries.push({name, kind: kind as GuestFileEntry['kind'], sizeBytes});
   }
-  // Same rule as parseGuestDirectoryOutput: hidden names count toward the
-  // cap, and a truncated page must carry exactly GUEST_FILE_LIST_LIMIT entries.
   if (truncated && entries.length !== GUEST_FILE_LIST_LIMIT) return invalid();
   return {kind: 'success', entries, truncated, hiddenInvalidNameCount};
 }
@@ -618,34 +543,6 @@ export function mapNativeGuestFileResponse(
   return decodePreviewPayload(base64, sizeBytes);
 }
 
-async function listGuestDirectoryNatively(
-  runtime: GuestFileNativeRuntime,
-  root: GuestFileRoot,
-  path: GuestFilePath,
-): Promise<GuestDirectoryResult> {
-  const requestId = nextRequestId('list');
-  try {
-    const response = await runtime.listGuestDirectory({requestId, root, path: [...path]});
-    return mapNativeGuestDirectoryResponse(response, requestId);
-  } catch {
-    return {kind: 'error', errorCode: 'internal_error'};
-  }
-}
-
-async function readGuestTextFileNatively(
-  runtime: GuestFileNativeRuntime,
-  root: GuestFileRoot,
-  path: GuestFilePath,
-): Promise<GuestFileContentResult> {
-  const requestId = nextRequestId('read');
-  try {
-    const response = await runtime.readGuestFile({requestId, root, path: [...path]});
-    return mapNativeGuestFileResponse(response, requestId);
-  } catch {
-    return {kind: 'error', errorCode: 'internal_error'};
-  }
-}
-
 export type GuestExportErrorCode =
   | 'internal_error'
   | 'invalid_request'
@@ -668,7 +565,6 @@ export type GuestExportResult =
     }>
   | Readonly<{kind: 'error'; errorCode: GuestExportErrorCode}>;
 
-/** Mirrors EXPORT_MAX_FILES / EXPORT_MAX_BYTES in GuestFileBrowser.kt. */
 export const GUEST_FILE_EXPORT_MAX_FILES = 20_000 as const;
 export const GUEST_FILE_EXPORT_MAX_BYTES = 2 * 1024 ** 3;
 
@@ -699,7 +595,7 @@ export function mapNativeGuestExportResponse(response: unknown, requestId: strin
   if (
     response.status !== 'success' ||
     typeof destination !== 'string' ||
-    destination.length === 0 ||
+    !destination ||
     !isSafeSize(fileCount) ||
     !isSafeSize(byteCount) ||
     !isSafeSize(skippedCount)
@@ -709,10 +605,7 @@ export function mapNativeGuestExportResponse(response: unknown, requestId: strin
   return {kind: 'success', destination, fileCount, byteCount, skippedCount};
 }
 
-/**
- * Android 7-9 need WRITE_EXTERNAL_STORAGE to write the public Download
- * folder; 10+ write through MediaStore without any permission.
- */
+/** Android 7-9 need WRITE_EXTERNAL_STORAGE to write Download folder; 10+ use MediaStore. */
 async function ensureDownloadsWritable(): Promise<boolean> {
   if (Platform.OS !== 'android' || Number(Platform.Version) >= 29) return true;
   try {
@@ -723,11 +616,7 @@ async function ensureDownloadsWritable(): Promise<boolean> {
   }
 }
 
-/**
- * Copies every regular file below a guest directory into the shared
- * Download/Horus/<folder>-<timestamp> folder. Native-only: the PTY fallback
- * has no route to shared storage.
- */
+/** Copies every regular file below a guest directory into shared storage. */
 export async function exportGuestDirectory(
   root: GuestFileRoot,
   path: GuestFilePath,
@@ -736,7 +625,7 @@ export async function exportGuestDirectory(
   if (!isGuestFileRoot(root) || !isValidGuestFilePath(path)) {
     return {kind: 'error', errorCode: 'invalid_path'};
   }
-  if (runtime === null || runtime === undefined || typeof runtime.exportGuestDirectory !== 'function') {
+  if (!runtime || typeof runtime.exportGuestDirectory !== 'function') {
     return {kind: 'error', errorCode: 'unsupported'};
   }
   if (!(await ensureDownloadsWritable())) return {kind: 'error', errorCode: 'permission_denied'};
@@ -749,11 +638,7 @@ export async function exportGuestDirectory(
   }
 }
 
-/**
- * Lists one guest directory without crossing the selected private root.
- * Android reads app-private storage directly; the PTY query is the fallback
- * when the native method is unavailable.
- */
+/** Lists one guest directory without crossing the selected private root. */
 export function listGuestDirectory(
   root: GuestFileRoot,
   path: GuestFilePath,
@@ -765,9 +650,12 @@ export function listGuestDirectory(
     return Promise.resolve({kind: 'error', errorCode: 'invalid_path'});
   }
   const native = nativeRuntimeFor(runtime, 'listGuestDirectory');
-  if (native !== null) {
+  if (native) {
     client?.dispose();
-    return listGuestDirectoryNatively(native, root, path);
+    const requestId = nextRequestId('list');
+    return native.listGuestDirectory({requestId, root, path: [...path]})
+      .then(res => mapNativeGuestDirectoryResponse(res, requestId))
+      .catch(() => ({kind: 'error' as const, errorCode: 'internal_error' as const}));
   }
   const queryClient = client ?? new TerminalSessionClient();
   const markerId = `q${(nextRequestId.currentSequence() + 1).toString(36)}`;
@@ -781,10 +669,7 @@ export function listGuestDirectory(
   return runGuestQuery('list', command, markerId, parseGuestDirectoryOutput, queryClient);
 }
 
-/**
- * Reads a UTF-8 text preview of a regular guest file, capped at 64 KiB.
- * Android reads app-private storage directly; the PTY query is the fallback.
- */
+/** Reads a UTF-8 text preview of a regular guest file, capped at 64 KiB. */
 export function readGuestTextFile(
   root: GuestFileRoot,
   path: GuestFilePath,
@@ -796,9 +681,12 @@ export function readGuestTextFile(
     return Promise.resolve({kind: 'error', errorCode: 'invalid_path'});
   }
   const native = nativeRuntimeFor(runtime, 'readGuestFile');
-  if (native !== null) {
+  if (native) {
     client?.dispose();
-    return readGuestTextFileNatively(native, root, path);
+    const requestId = nextRequestId('read');
+    return native.readGuestFile({requestId, root, path: [...path]})
+      .then(res => mapNativeGuestFileResponse(res, requestId))
+      .catch(() => ({kind: 'error' as const, errorCode: 'internal_error' as const}));
   }
   const queryClient = client ?? new TerminalSessionClient();
   const markerId = `q${(nextRequestId.currentSequence() + 1).toString(36)}`;

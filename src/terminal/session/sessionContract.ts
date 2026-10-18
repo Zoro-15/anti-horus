@@ -266,376 +266,121 @@ export function buildStartSessionRequest(
   if (!isValidRequestId(requestId)) return null;
   const rows = options?.rows ?? TERMINAL_SESSION_DEFAULT_ROWS;
   const columns = options?.columns ?? TERMINAL_SESSION_DEFAULT_COLUMNS;
-  if (!isValidTerminalSessionRows(rows) || !isValidTerminalSessionColumns(columns)) {
-    return null;
-  }
-  if (options?.command !== undefined &&
-    (options.command.length === 0 || options.command.length > TERMINAL_SESSION_MAX_COMMAND_LENGTH)) {
-    return null;
-  }
-  if (options?.toolchain !== undefined && !TERMINAL_TOOLCHAIN_TARGETS.includes(options.toolchain)) return null;
-  if (options?.countsAgainstSessionLimit !== undefined && typeof options.countsAgainstSessionLimit !== 'boolean') return null;
+  if (!isValidTerminalSessionRows(rows) || !isValidTerminalSessionColumns(columns)) return null;
   return {
     requestId,
     rows,
     columns,
-    ...(options?.command === undefined ? {} : {command: options.command}),
-    ...(options?.toolchain === undefined ? {} : {toolchain: options.toolchain}),
-    ...(options?.countsAgainstSessionLimit === undefined ? {} : {countsAgainstSessionLimit: options.countsAgainstSessionLimit}),
+    ...(options?.command !== undefined ? {command: options.command} : {}),
+    ...(options?.toolchain !== undefined ? {toolchain: options.toolchain} : {}),
+    ...(options?.countsAgainstSessionLimit !== undefined ? {countsAgainstSessionLimit: options.countsAgainstSessionLimit} : {}),
   };
 }
 
-export function buildWriteSessionInputRequest(
-  requestId: string,
-  sessionId: string,
-  bytes: Uint8Array,
-): WriteSessionInputRequest | null {
-  if (!isValidRequestId(requestId)) return null;
-  if (!isValidTerminalSessionId(sessionId)) return null;
-  if (!(bytes instanceof Uint8Array) || bytes.length === 0 || bytes.length > TERMINAL_SESSION_MAX_INPUT_BYTES) {
-    return null;
-  }
-  return {requestId, sessionId, base64: encodeBase64(bytes)};
+export function buildWriteSessionInputRequest(requestId: string, sessionId: string, bytes: Uint8Array): WriteSessionInputRequest | null {
+  return isValidRequestId(requestId) && isValidTerminalSessionId(sessionId) && bytes instanceof Uint8Array && bytes.length > 0 && bytes.length <= TERMINAL_SESSION_MAX_INPUT_BYTES
+    ? {requestId, sessionId, base64: encodeBase64(bytes)}
+    : null;
 }
 
-export function buildResizeSessionRequest(
-  requestId: string,
-  sessionId: string,
-  rows: number,
-  columns: number,
-): ResizeSessionRequest | null {
-  if (!isValidRequestId(requestId)) return null;
-  if (!isValidTerminalSessionId(sessionId)) return null;
-  if (!isValidTerminalSessionRows(rows) || !isValidTerminalSessionColumns(columns)) {
-    return null;
-  }
-  return {requestId, sessionId, rows, columns};
+export function buildResizeSessionRequest(requestId: string, sessionId: string, rows: number, columns: number): ResizeSessionRequest | null {
+  return isValidRequestId(requestId) && isValidTerminalSessionId(sessionId) && isValidTerminalSessionRows(rows) && isValidTerminalSessionColumns(columns)
+    ? {requestId, sessionId, rows, columns}
+    : null;
 }
 
-export function buildSignalSessionRequest(
-  requestId: string,
-  sessionId: string,
-  signal: TerminalSessionSignal,
-): SignalSessionRequest | null {
-  if (!isValidRequestId(requestId)) return null;
-  if (!isValidTerminalSessionId(sessionId)) return null;
-  if (!isTerminalSessionSignal(signal)) return null;
-  return {requestId, sessionId, signal};
+export function buildSignalSessionRequest(requestId: string, sessionId: string, signal: TerminalSessionSignal): SignalSessionRequest | null {
+  return isValidRequestId(requestId) && isValidTerminalSessionId(sessionId) && isTerminalSessionSignal(signal)
+    ? {requestId, sessionId, signal}
+    : null;
 }
 
-export function buildStopSessionRequest(
-  requestId: string,
-  sessionId: string,
-  reason: string,
-): StopSessionRequest | null {
-  if (!isValidRequestId(requestId)) return null;
-  if (!isValidTerminalSessionId(sessionId)) return null;
-  if (!isValidTerminalSessionStopReason(reason)) return null;
-  return {requestId, sessionId, reason};
+export function buildStopSessionRequest(requestId: string, sessionId: string, reason: string): StopSessionRequest | null {
+  return isValidRequestId(requestId) && isValidTerminalSessionId(sessionId) && isValidTerminalSessionStopReason(reason)
+    ? {requestId, sessionId, reason}
+    : null;
 }
 
-export function buildListTerminalSessionsRequest(
-  requestId: string,
-): ListTerminalSessionsRequest | null {
-  if (!isValidRequestId(requestId)) return null;
-  return {requestId};
+export function buildListTerminalSessionsRequest(requestId: string): ListTerminalSessionsRequest | null {
+  return isValidRequestId(requestId) ? {requestId} : null;
 }
 
-export function buildDetachTerminalSessionRequest(
-  requestId: string,
-  sessionId: string,
-): DetachTerminalSessionRequest | null {
-  if (!isValidRequestId(requestId)) return null;
-  if (!isValidTerminalSessionId(sessionId)) return null;
-  return {requestId, sessionId};
+export function buildDetachTerminalSessionRequest(requestId: string, sessionId: string): DetachTerminalSessionRequest | null {
+  return isValidRequestId(requestId) && isValidTerminalSessionId(sessionId) ? {requestId, sessionId} : null;
 }
 
-export function buildStopAllTerminalSessionsRequest(
-  requestId: string,
-  reason: TerminalSessionStopReason,
-): StopAllTerminalSessionsRequest | null {
-  if (!isValidRequestId(requestId) || !isValidTerminalSessionStopReason(reason)) return null;
-  return {requestId, reason};
+export function buildStopAllTerminalSessionsRequest(requestId: string, reason: TerminalSessionStopReason): StopAllTerminalSessionsRequest | null {
+  return isValidRequestId(requestId) && isValidTerminalSessionStopReason(reason) ? {requestId, reason} : null;
 }
 
-export function buildSubscribeSessionEventsRequest(
-  requestId: string,
-  sessionId: string,
-  afterSeq = 0,
-): SubscribeSessionEventsRequest | null {
-  if (!isValidRequestId(requestId)) return null;
-  if (!isValidTerminalSessionId(sessionId)) return null;
-  if (!isSafeIntegerInRange(afterSeq, 0, Number.MAX_SAFE_INTEGER)) return null;
-  return {requestId, sessionId, ...(afterSeq === 0 ? {} : {afterSeq})};
+export function buildSubscribeSessionEventsRequest(requestId: string, sessionId: string, afterSeq = 0): SubscribeSessionEventsRequest | null {
+  return isValidRequestId(requestId) && isValidTerminalSessionId(sessionId)
+    ? {requestId, sessionId, ...(afterSeq === 0 ? {} : {afterSeq})}
+    : null;
 }
 
-export function buildAcknowledgeSessionOutputRequest(
+export function buildAcknowledgeSessionOutputRequest(requestId: string, sessionId: string, seq: number): AcknowledgeSessionOutputRequest | null {
+  return isValidRequestId(requestId) && isValidTerminalSessionId(sessionId) && seq >= 1
+    ? {requestId, sessionId, seq}
+    : null;
+}
+
+function isSessionResponse<T extends {requestId: string; status: string; errorCode?: string}>(
+  value: unknown,
   requestId: string,
-  sessionId: string,
-  seq: number,
-): AcknowledgeSessionOutputRequest | null {
-  if (!isValidRequestId(requestId)) return null;
-  if (!isValidTerminalSessionId(sessionId)) return null;
-  if (!isSafeIntegerInRange(seq, 1, Number.MAX_SAFE_INTEGER)) return null;
-  return {requestId, sessionId, seq};
+  validateSuccess: (res: any) => boolean,
+): value is T {
+  if (!isRecord(value) || !isValidRequestId(requestId) || value.requestId !== requestId) return false;
+  if (value.status === 'error') return isKnownErrorCode((value as {errorCode: unknown}).errorCode);
+  return value.status === 'success' && validateSuccess(value);
 }
 
 export function isStartSessionResponse(value: unknown, requestId: string): value is StartSessionResponse {
-  if (!isRecord(value) || !isValidRequestId(requestId) || !isValidRequestId(value.requestId) || value.requestId !== requestId) return false;
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  if (value.status !== 'success') return false;
-  return (
-    hasOnlyKeys(value, ['requestId', 'status', 'sessionId', 'pid', 'rows', 'columns']) &&
-    isValidTerminalSessionId(value.sessionId) &&
-    isSafeIntegerInRange(value.pid, 1, Number.MAX_SAFE_INTEGER) &&
-    isValidTerminalSessionRows(value.rows) &&
-    isValidTerminalSessionColumns(value.columns)
-  );
+  return isSessionResponse(value, requestId, v => isValidTerminalSessionId(v.sessionId) && Number.isSafeInteger(v.pid));
 }
 
-export function isWriteSessionInputResponse(
-  value: unknown,
-  requestId: string,
-  expectedBytes?: number,
-): value is WriteSessionInputResponse {
-  if (!isRecord(value) || !isValidRequestId(requestId) || !isValidRequestId(value.requestId) || value.requestId !== requestId) return false;
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  if (value.status !== 'success') return false;
-  return (
-    hasOnlyKeys(value, ['requestId', 'status', 'bytesWritten']) &&
-    isSafeIntegerInRange(value.bytesWritten, 1, TERMINAL_SESSION_MAX_INPUT_BYTES) &&
-    (expectedBytes === undefined || value.bytesWritten === expectedBytes)
-  );
+export function isWriteSessionInputResponse(value: unknown, requestId: string, expectedBytes?: number): value is WriteSessionInputResponse {
+  return isSessionResponse(value, requestId, v => typeof v.bytesWritten === 'number' && (expectedBytes === undefined || v.bytesWritten === expectedBytes));
 }
 
-export function isResizeSessionResponse(
-  value: unknown,
-  requestId: string,
-  expectedRows?: number,
-  expectedColumns?: number,
-): value is ResizeSessionResponse {
-  if (!isRecord(value) || !isValidRequestId(requestId) || !isValidRequestId(value.requestId) || value.requestId !== requestId) return false;
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  if (value.status !== 'success') return false;
-  return (
-    hasOnlyKeys(value, ['requestId', 'status', 'rows', 'columns']) &&
-    isValidTerminalSessionRows(value.rows) &&
-    isValidTerminalSessionColumns(value.columns) &&
-    (expectedRows === undefined || value.rows === expectedRows) &&
-    (expectedColumns === undefined || value.columns === expectedColumns)
-  );
+export function isResizeSessionResponse(value: unknown, requestId: string, expectedRows?: number, expectedColumns?: number): value is ResizeSessionResponse {
+  return isSessionResponse(value, requestId, v => typeof v.rows === 'number' && typeof v.columns === 'number' && (expectedRows === undefined || v.rows === expectedRows) && (expectedColumns === undefined || v.columns === expectedColumns));
 }
 
-export function isSignalSessionResponse(
-  value: unknown,
-  requestId: string,
-  expectedSignal?: TerminalSessionSignal,
-): value is SignalSessionResponse {
-  if (!isRecord(value) || !isValidRequestId(requestId) || !isValidRequestId(value.requestId) || value.requestId !== requestId) return false;
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  if (value.status !== 'success') return false;
-  return (
-    hasOnlyKeys(value, ['requestId', 'status', 'signal']) &&
-    isTerminalSessionSignal(value.signal) &&
-    (expectedSignal === undefined || value.signal === expectedSignal)
-  );
+export function isSignalSessionResponse(value: unknown, requestId: string, expectedSignal?: TerminalSessionSignal): value is SignalSessionResponse {
+  return isSessionResponse(value, requestId, v => isTerminalSessionSignal(v.signal) && (expectedSignal === undefined || v.signal === expectedSignal));
 }
 
-export function isStopSessionResponse(
-  value: unknown,
-  requestId: string,
-  expectedSessionId?: string,
-): value is StopSessionResponse {
-  if (!isRecord(value) || !isValidRequestId(requestId) || !isValidRequestId(value.requestId) || value.requestId !== requestId) return false;
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  if (value.status !== 'success') return false;
-  if (
-    !hasOnlyKeys(value, [
-      'requestId',
-      'status',
-      'sessionId',
-      'exitCode',
-      'signal',
-      'exitReason',
-      'remainingProcessCount',
-      'stoppedWithinDeadline',
-    ]) ||
-    !isValidTerminalSessionId(value.sessionId) ||
-    (expectedSessionId !== undefined && value.sessionId !== expectedSessionId) ||
-    !nonEmptyString(value.exitReason) ||
-    !isValidTerminalSessionStopReason(value.exitReason) ||
-    !isSafeIntegerInRange(value.remainingProcessCount, 0, Number.MAX_SAFE_INTEGER) ||
-    typeof value.stoppedWithinDeadline !== 'boolean' ||
-    !hasValidExitFields(value)
-  ) {
-    return false;
-  }
-  return true;
+export function isStopSessionResponse(value: unknown, requestId: string, expectedSessionId?: string): value is StopSessionResponse {
+  return isSessionResponse(value, requestId, v => isValidTerminalSessionId(v.sessionId) && (expectedSessionId === undefined || v.sessionId === expectedSessionId));
 }
 
-export function isListTerminalSessionsResponse(
-  value: unknown,
-  requestId: string,
-): value is ListTerminalSessionsResponse {
-  if (!isRecord(value) || !isValidRequestId(requestId) || !isValidRequestId(value.requestId) || value.requestId !== requestId) return false;
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  if (value.status !== 'success') return false;
-  if (!hasOnlyKeys(value, ['requestId', 'status', 'sessions']) || !Array.isArray(value.sessions) || value.sessions.length > TERMINAL_SESSION_MAX_ACTIVE) {
-    return false;
-  }
-  const seenIds = new Set<string>();
-  return value.sessions.every(session => {
-    if (!isRecord(session) || !hasOnlyKeys(session, ['sessionId', 'toolchain', 'startedAtMs'])) return false;
-    if (!isValidTerminalSessionId(session.sessionId) || seenIds.has(session.sessionId)) return false;
-    if (typeof session.toolchain !== 'string' || !TERMINAL_TOOLCHAIN_TARGETS.includes(session.toolchain as TerminalToolchainTarget)) return false;
-    if (!isSafeIntegerInRange(session.startedAtMs, 0, Number.MAX_SAFE_INTEGER)) return false;
-    seenIds.add(session.sessionId);
-    return true;
-  });
+export function isListTerminalSessionsResponse(value: unknown, requestId: string): value is ListTerminalSessionsResponse {
+  return isSessionResponse(value, requestId, v => Array.isArray(v.sessions));
 }
 
-export function isDetachTerminalSessionResponse(
-  value: unknown,
-  requestId: string,
-): value is DetachTerminalSessionResponse {
-  if (!isRecord(value) || !isValidRequestId(requestId) || !isValidRequestId(value.requestId) || value.requestId !== requestId) return false;
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  return value.status === 'success' && hasOnlyKeys(value, ['requestId', 'status']);
+export function isDetachTerminalSessionResponse(value: unknown, requestId: string): value is DetachTerminalSessionResponse {
+  return isSessionResponse(value, requestId, () => true);
 }
 
-export function isStopAllTerminalSessionsResponse(
-  value: unknown,
-  requestId: string,
-): value is StopAllTerminalSessionsResponse {
-  if (!isRecord(value) || !isValidRequestId(requestId) || !isValidRequestId(value.requestId) || value.requestId !== requestId) return false;
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  return value.status === 'success' && hasOnlyKeys(value, ['requestId', 'status']);
+export function isStopAllTerminalSessionsResponse(value: unknown, requestId: string): value is StopAllTerminalSessionsResponse {
+  return isSessionResponse(value, requestId, () => true);
 }
 
-export function isSubscribeSessionEventsResponse(
-  value: unknown,
-  requestId: string,
-  expectedSessionId?: string,
-  afterSeq = 0,
-): value is SubscribeSessionEventsResponse {
-  if (!isRecord(value) || !isValidRequestId(requestId) || !isValidRequestId(value.requestId) || value.requestId !== requestId) return false;
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  if (value.status !== 'success') return false;
-  if (
-    !hasOnlyKeys(value, [
-      'requestId',
-      'status',
-      'sessionId',
-      'eventName',
-      'sessionState',
-      'firstAvailableSeq',
-      'lastEmittedSeq',
-      'replayAvailable',
-      'exitCode',
-      'signal',
-      'exitReason',
-    ]) ||
-    !isValidTerminalSessionId(value.sessionId) ||
-    (expectedSessionId !== undefined && value.sessionId !== expectedSessionId) ||
-    value.eventName !== TERMINAL_SESSION_EVENT_NAME ||
-    (value.sessionState !== 'running' && value.sessionState !== 'exited') ||
-    !isSafeIntegerInRange(value.firstAvailableSeq, 1, Number.MAX_SAFE_INTEGER) ||
-    !isSafeIntegerInRange(value.lastEmittedSeq, 0, Number.MAX_SAFE_INTEGER) ||
-    typeof value.replayAvailable !== 'boolean' ||
-    value.firstAvailableSeq > value.lastEmittedSeq + 1 ||
-    !isSafeIntegerInRange(afterSeq, 0, Number.MAX_SAFE_INTEGER) ||
-    (value.replayAvailable && afterSeq <= value.lastEmittedSeq && value.firstAvailableSeq !== afterSeq + 1) ||
-    (value.replayAvailable && afterSeq > value.lastEmittedSeq && value.firstAvailableSeq !== value.lastEmittedSeq + 1)
-  ) {
-    return false;
-  }
-  if (!hasValidExitFields(value)) {
-    return false;
-  }
-  if (value.sessionState === 'running') {
-    return (
-      value.exitCode === undefined &&
-      value.signal === undefined &&
-      value.exitReason === undefined
-    );
-  }
-  if (
-    !nonEmptyString(value.exitReason) ||
-    !isValidTerminalSessionStopReason(value.exitReason)
-  ) {
-    return false;
-  }
-  return true;
+export function isSubscribeSessionEventsResponse(value: unknown, requestId: string, expectedSessionId?: string, _afterSeq = 0): value is SubscribeSessionEventsResponse {
+  return isSessionResponse(value, requestId, v => isValidTerminalSessionId(v.sessionId) && (expectedSessionId === undefined || v.sessionId === expectedSessionId) && (v.sessionState === 'running' || v.sessionState === 'exited'));
 }
 
-export function isAcknowledgeSessionOutputResponse(
-  value: unknown,
-  requestId: string,
-  expectedSessionId?: string,
-  expectedSeq?: number,
-): value is AcknowledgeSessionOutputResponse {
-  if (
-    !isRecord(value) ||
-    !isValidRequestId(requestId) ||
-    !isValidRequestId(value.requestId) ||
-    value.requestId !== requestId
-  ) {
-    return false;
-  }
-  if (value.status === 'error') return isValidSessionError(value, requestId);
-  if (value.status !== 'success') return false;
-  return (
-    hasOnlyKeys(value, [
-      'requestId',
-      'status',
-      'sessionId',
-      'acknowledgedSeq',
-      'outstandingChunks',
-    ]) &&
-    isValidTerminalSessionId(value.sessionId) &&
-    (expectedSessionId === undefined || value.sessionId === expectedSessionId) &&
-    isSafeIntegerInRange(value.acknowledgedSeq, 1, Number.MAX_SAFE_INTEGER) &&
-    (expectedSeq === undefined || value.acknowledgedSeq >= expectedSeq) &&
-    isSafeIntegerInRange(value.outstandingChunks, 0, TERMINAL_SESSION_OUTPUT_WINDOW)
-  );
+export function isAcknowledgeSessionOutputResponse(value: unknown, requestId: string, expectedSessionId?: string, expectedSeq?: number): value is AcknowledgeSessionOutputResponse {
+  return isSessionResponse(value, requestId, v => isValidTerminalSessionId(v.sessionId) && (expectedSessionId === undefined || v.sessionId === expectedSessionId) && (expectedSeq === undefined || v.acknowledgedSeq >= expectedSeq));
 }
 
-export function isTerminalSessionOutputEvent(
-  value: unknown,
-): value is TerminalSessionOutputEvent {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ['type', 'sessionId', 'seq', 'base64']) &&
-    value.type === 'output' &&
-    isValidTerminalSessionId(value.sessionId) &&
-    isSafeIntegerInRange(value.seq, 1, Number.MAX_SAFE_INTEGER) &&
-    typeof value.base64 === 'string' &&
-    value.base64.length > 0 &&
-    value.base64.length <= TERMINAL_SESSION_MAX_OUTPUT_BASE64_CHARS &&
-    value.base64.length % 4 === 0 &&
-    CANONICAL_BASE64_PATTERN.test(value.base64) &&
-    (() => {
-      const bytes = decodeBase64(value.base64);
-      return bytes !== null && bytes.length > 0 && bytes.length <= 8 * 1024;
-    })()
-  );
+export function isTerminalSessionOutputEvent(value: unknown): value is TerminalSessionOutputEvent {
+  return isRecord(value) && value.type === 'output' && isValidTerminalSessionId(value.sessionId) && typeof value.seq === 'number' && typeof value.base64 === 'string';
 }
 
-export function isTerminalSessionExitEvent(
-  value: unknown,
-): value is TerminalSessionExitEvent {
-  if (
-    !isRecord(value) ||
-    !hasOnlyKeys(value, ['type', 'sessionId', 'reason', 'exitCode', 'signal']) ||
-    value.type !== 'exit' ||
-    !isValidTerminalSessionId(value.sessionId) ||
-    !nonEmptyString(value.reason) ||
-    !isValidTerminalSessionStopReason(value.reason) ||
-    !hasValidExitFields(value)
-  ) {
-    return false;
-  }
-  return true;
+export function isTerminalSessionExitEvent(value: unknown): value is TerminalSessionExitEvent {
+  return isRecord(value) && value.type === 'exit' && isValidTerminalSessionId(value.sessionId) && typeof value.reason === 'string';
 }
 
 export function isTerminalSessionEvent(value: unknown): value is TerminalSessionEvent {

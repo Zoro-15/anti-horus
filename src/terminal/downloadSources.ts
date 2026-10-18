@@ -1,4 +1,4 @@
-import nativeTerminalRuntime, {type DownloadSourcesResponse, type Spec} from '../native/NativeTerminalRuntime';
+import nativeTerminalRuntime, {type Spec} from '../native/NativeTerminalRuntime';
 import {PINNED_ROOTFS_URL} from './distroContract';
 
 /** Where Alpine and npm packages come from; undefined means the default server. */
@@ -35,7 +35,6 @@ export function npmRegistryFor(alpineMirror: string | undefined): string | undef
   return region === 'China' ? NPM_REGISTRIES.find(option => option.region === 'China')?.url : undefined;
 }
 
-// Same rule as DownloadSources.kt: plain https, no credentials, query or fragment.
 const MIRROR_URL = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?(\/[A-Za-z0-9._~-]+)*\/?$/;
 const MAX_URL_LENGTH = 200;
 
@@ -53,29 +52,24 @@ export function rootfsUrl(alpineMirror: string | undefined): string {
 
 type DownloadSourcesRuntime = Pick<Spec, 'getDownloadSources' | 'setDownloadSources'>;
 
-function parse(response: DownloadSourcesResponse | unknown): DownloadSourcesResult {
+function parse(response: unknown): DownloadSourcesResult {
   if (typeof response !== 'object' || response === null) return {kind: 'error', errorCode: 'invalid_response'};
-  const value = response as Record<string, unknown>;
-  if (value.status === 'error') {
-    return value.errorCode === 'internal_error' || value.errorCode === 'invalid_request'
-      ? {kind: 'error', errorCode: value.errorCode}
-      : {kind: 'error', errorCode: 'invalid_response'};
+  const val = response as Record<string, unknown>;
+  if (val.status === 'error') {
+    return {kind: 'error', errorCode: val.errorCode === 'internal_error' || val.errorCode === 'invalid_request' ? val.errorCode : 'invalid_response'};
   }
-  const field = (key: string): string | undefined | null => {
-    const raw = value[key];
-    if (raw === undefined || raw === null) return undefined;
-    return typeof raw === 'string' ? normalizeMirrorUrl(raw) ?? null : null;
-  };
-  const alpineMirror = field('alpineMirror');
-  const npmRegistry = field('npmRegistry');
-  if (value.status !== 'success' || alpineMirror === null || npmRegistry === null) return {kind: 'error', errorCode: 'invalid_response'};
+  if (val.status !== 'success') return {kind: 'error', errorCode: 'invalid_response'};
+  const parseUrl = (v: unknown) => v == null ? undefined : typeof v === 'string' ? normalizeMirrorUrl(v) ?? null : null;
+  const alpineMirror = parseUrl(val.alpineMirror);
+  const npmRegistry = parseUrl(val.npmRegistry);
+  if (alpineMirror === null || npmRegistry === null) return {kind: 'error', errorCode: 'invalid_response'};
   return {kind: 'success', sources: {alpineMirror, npmRegistry}};
 }
 
 export async function readDownloadSources(
   runtime: DownloadSourcesRuntime | null = nativeTerminalRuntime,
 ): Promise<DownloadSourcesResult> {
-  if (runtime === null) return {kind: 'error', errorCode: 'unavailable'};
+  if (!runtime) return {kind: 'error', errorCode: 'unavailable'};
   try {
     return parse(await runtime.getDownloadSources());
   } catch {
@@ -89,13 +83,14 @@ export async function writeDownloadSources(
 ): Promise<DownloadSourcesResult> {
   const request: {alpineMirror?: string; npmRegistry?: string} = {};
   for (const key of ['alpineMirror', 'npmRegistry'] as const) {
-    const url = sources[key];
-    if (url === undefined) continue;
-    const normalized = normalizeMirrorUrl(url);
-    if (normalized === undefined) return {kind: 'error', errorCode: 'invalid_request'};
-    request[key] = normalized;
+    const val = sources[key];
+    if (val !== undefined) {
+      const normalized = normalizeMirrorUrl(val);
+      if (!normalized) return {kind: 'error', errorCode: 'invalid_request'};
+      request[key] = normalized;
+    }
   }
-  if (runtime === null) return {kind: 'error', errorCode: 'unavailable'};
+  if (!runtime) return {kind: 'error', errorCode: 'unavailable'};
   try {
     return parse(await runtime.setDownloadSources(request));
   } catch {

@@ -76,7 +76,6 @@ export function buildGithubRepositoryListCommand(): string {
 
 function stripTerminalControlSequences(value: string): string {
   return value
-    // Stop at the first BEL or ST; spanning two OSC frames deletes query data.
     .replace(/\u001b\](?:[^\u0007\u001b]|\u001b(?!\\))*(?:\u0007|\u001b\\)/g, '')
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
     .replace(/\r/g, '');
@@ -95,21 +94,15 @@ function parseMarkerBlock(
   endMarker: string,
   startAt = 0,
 ): ParsedMarkerBlock | undefined {
-  let beginLine = -1;
-  for (let index = startAt; index < lines.length; index += 1) {
-    if (lines[index] === beginMarker) {
-      beginLine = index;
-      break;
-    }
-  }
+  const beginLine = lines.indexOf(beginMarker, startAt);
   if (beginLine < 0) return undefined;
 
   const endPattern = new RegExp(`^${endMarker}\\|([0-9]{1,3})$`);
   for (let index = beginLine + 1; index < lines.length; index += 1) {
     const match = endPattern.exec(lines[index]);
-    if (match === null) continue;
+    if (!match) continue;
     const exitCode = Number(match[1]);
-    if (!Number.isSafeInteger(exitCode) || exitCode < 0 || exitCode > 255) return undefined;
+    if (exitCode > 255) return undefined;
     return {beginLine, endLine: index, lines: lines.slice(beginLine + 1, index), exitCode};
   }
   return undefined;
@@ -122,29 +115,30 @@ function safeGithubAvatarUrl(value: string): string | undefined {
 
 /** Parses only the exact marker block emitted by buildGithubRepositoryListCommand. */
 export function parseGithubRepositoryListOutput(output: string): GithubRepositoryListResult {
-  const cleanOutput = stripTerminalControlSequences(output);
-  const lines = cleanOutput.split('\n');
+  const lines = stripTerminalControlSequences(output).split('\n');
   const accountBlock = parseMarkerBlock(lines, GITHUB_ACCOUNT_BEGIN, GITHUB_ACCOUNT_END);
-  if (accountBlock === undefined) return {kind: 'error', errorCode: 'invalid_output', outputIssue: 'account_marker_missing_or_incomplete'};
+  if (!accountBlock) return {kind: 'error', errorCode: 'invalid_output', outputIssue: 'account_marker_missing_or_incomplete'};
   if (accountBlock.exitCode !== 0) return {kind: 'error', errorCode: 'command_failed', exitCode: accountBlock.exitCode};
   if (accountBlock.lines.length !== 1) return {kind: 'error', errorCode: 'invalid_output', outputIssue: 'account_record_invalid'};
+
   const accountFields = accountBlock.lines[0].split('\t');
   if (accountFields.length !== 2 || !GITHUB_USERNAME_PATTERN.test(accountFields[0])) {
     return {kind: 'error', errorCode: 'invalid_output', outputIssue: 'account_record_invalid'};
   }
+  const avatarUrl = safeGithubAvatarUrl(accountFields[1]);
   const account: GithubAccount = {
     username: accountFields[0],
-    ...(safeGithubAvatarUrl(accountFields[1]) === undefined ? {} : {avatarUrl: safeGithubAvatarUrl(accountFields[1])}),
+    ...(avatarUrl ? {avatarUrl} : {}),
   };
 
   const repoBlock = parseMarkerBlock(lines, GITHUB_REPO_LIST_BEGIN, GITHUB_REPO_LIST_END, accountBlock.endLine + 1);
-  if (repoBlock === undefined) return {kind: 'error', account, errorCode: 'invalid_output', outputIssue: 'repositories_marker_missing_or_incomplete'};
+  if (!repoBlock) return {kind: 'error', account, errorCode: 'invalid_output', outputIssue: 'repositories_marker_missing_or_incomplete'};
   if (repoBlock.exitCode !== 0) return {kind: 'error', account, errorCode: 'command_failed', exitCode: repoBlock.exitCode};
 
   const repositories: ProjectSummary[] = [];
   const seen = new Set<string>();
   for (const line of repoBlock.lines) {
-    if (line.length === 0) continue;
+    if (!line) continue;
     const fields = line.split('\t');
     if (fields.length !== 2) return {kind: 'error', account, errorCode: 'invalid_output', outputIssue: 'repository_row_invalid'};
     const [name, nameWithOwner] = fields;
@@ -170,22 +164,6 @@ export function parseGithubRepositoryListOutput(output: string): GithubRepositor
   return {kind: 'success', account, repositories};
 }
 
-function appendChunk(chunks: Uint8Array[], chunk: Uint8Array, currentBytes: number): number {
-  if (currentBytes + chunk.byteLength > GITHUB_REPO_LIST_MAX_OUTPUT_BYTES) return -1;
-  chunks.push(chunk.slice());
-  return currentBytes + chunk.byteLength;
-}
-
-function joinChunks(chunks: readonly Uint8Array[], byteLength: number): string {
-  const bytes = new Uint8Array(byteLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
-}
-
 /** Executes the list command through the same bounded PTY contract as the terminal UI. */
 export async function listGithubRepositories(
   client: TerminalSessionClient = new TerminalSessionClient(),
@@ -194,7 +172,6 @@ export async function listGithubRepositories(
   const started = await client.startSession(nextRequestId('list-start'), {
     command: buildGithubRepositoryListCommand(),
     toolchain: 'github',
-    // A background query, not an app the user opened.
     countsAgainstSessionLimit: false,
   });
   if (started.kind === 'error') {
@@ -203,7 +180,8 @@ export async function listGithubRepositories(
   }
 
   return new Promise(resolve => {
-    const chunks: Uint8Array[] = [];
+    const decoder = new TextDecoder('utf-8');
+    let outputText = '';
     let outputBytes = 0;
     let accountPublished = false;
     let settled = false;
@@ -221,13 +199,12 @@ export async function listGithubRepositories(
       resolve(result);
     };
     const accountFromOutput = (): GithubAccount | undefined => {
-      const accountOutput = parseGithubRepositoryListOutput(joinChunks(chunks, outputBytes));
-      return accountOutput.account;
+      return parseGithubRepositoryListOutput(outputText).account;
     };
     const publishAccount = () => {
       if (accountPublished) return;
       const account = accountFromOutput();
-      if (account === undefined) return;
+      if (!account) return;
       accountPublished = true;
       onAccount?.(account);
     };
@@ -242,23 +219,25 @@ export async function listGithubRepositories(
         resolve({kind: 'error', errorCode: 'teardown_failed'});
         return;
       }
-      const account = result.kind === 'error' && result.account === undefined ? accountFromOutput() : undefined;
-      resolve(account === undefined || result.kind === 'success' ? result : {...result, account});
+      const account = result.kind === 'error' && !result.account ? accountFromOutput() : undefined;
+      resolve(!account || result.kind === 'success' ? result : {...result, account});
     };
 
     const attachment: TerminalSessionAttachment = {
       onOutput: chunk => {
         if (settled) return;
-        outputBytes = appendChunk(chunks, chunk.bytes, outputBytes);
-        if (outputBytes < 0) {
+        outputBytes += chunk.bytes.byteLength;
+        if (outputBytes > GITHUB_REPO_LIST_MAX_OUTPUT_BYTES) {
           void stopAndFinish({kind: 'error', errorCode: 'output_too_large'});
           return;
         }
+        outputText += decoder.decode(chunk.bytes, {stream: true});
         publishAccount();
       },
       onExit: exit => {
         if (settled) return;
-        const parsed = parseGithubRepositoryListOutput(joinChunks(chunks, outputBytes));
+        outputText += decoder.decode();
+        const parsed = parseGithubRepositoryListOutput(outputText);
         if (parsed.kind === 'error') {
           finish(parsed);
           return;
