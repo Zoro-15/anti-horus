@@ -246,8 +246,44 @@ function parseSafeSize(value: string): number | null {
 }
 
 function decodeStrictUtf8(bytes: Uint8Array): string | null {
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const first = bytes[offset];
+    if (first <= 0x7f) {
+      offset += 1;
+      continue;
+    }
+
+    let continuationCount: number;
+    if (first >= 0xc2 && first <= 0xdf) {
+      continuationCount = 1;
+    } else if (first >= 0xe0 && first <= 0xef) {
+      continuationCount = 2;
+    } else if (first >= 0xf0 && first <= 0xf4) {
+      continuationCount = 3;
+    } else {
+      return null;
+    }
+
+    if (offset + continuationCount >= bytes.byteLength) return null;
+    const second = bytes[offset + 1];
+    if (
+      (second & 0xc0) !== 0x80 ||
+      (first === 0xe0 && second < 0xa0) ||
+      (first === 0xed && second > 0x9f) ||
+      (first === 0xf0 && second < 0x90) ||
+      (first === 0xf4 && second > 0x8f)
+    ) {
+      return null;
+    }
+    for (let index = 2; index <= continuationCount; index += 1) {
+      if ((bytes[offset + index] & 0xc0) !== 0x80) return null;
+    }
+    offset += continuationCount + 1;
+  }
+
   try {
-    return new TextDecoder('utf-8', {fatal: true}).decode(bytes);
+    return new TextDecoder('utf-8').decode(bytes);
   } catch {
     return null;
   }

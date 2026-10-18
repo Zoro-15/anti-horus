@@ -4,7 +4,9 @@ import type {GithubAccount} from './githubRepositories';
 const GITHUB_USERNAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 const GITHUB_AVATAR_PATH_PATTERN = /^https:\/\/avatars\.githubusercontent\.com\/[A-Za-z0-9._~!$'()*+,;=:@%/-]{1,256}$/;
 
-const dev = NativeModules.HorusDevice;
+function getDev() {
+  return NativeModules.HorusDevice;
+}
 
 function isGithubAccount(value: unknown): value is GithubAccount {
   return typeof value === 'object' && value !== null &&
@@ -16,7 +18,7 @@ function isGithubAccount(value: unknown): value is GithubAccount {
 
 export async function readStoredGithubAccount(): Promise<GithubAccount | undefined> {
   try {
-    const res = await dev?.getGithubAccount?.();
+    const res = await getDev()?.getGithubAccount?.();
     return isGithubAccount(res) ? res : undefined;
   } catch {
     return undefined;
@@ -26,7 +28,7 @@ export async function readStoredGithubAccount(): Promise<GithubAccount | undefin
 export async function saveGithubAccount(account: GithubAccount): Promise<boolean> {
   if (!isGithubAccount(account)) return false;
   try {
-    const res = await dev?.saveGithubAccount?.(account);
+    const res = await getDev()?.saveGithubAccount?.(account);
     return res?.status === 'success';
   } catch {
     return false;
@@ -35,10 +37,9 @@ export async function saveGithubAccount(account: GithubAccount): Promise<boolean
 
 export async function clearStoredGithubAccount(): Promise<boolean> {
   try {
-    const res = await dev?.clearGithubAccount?.();
+    const res = await getDev()?.clearGithubAccount?.();
     return res?.status === 'success';
   } catch {
     return false;
   }
 }
-
