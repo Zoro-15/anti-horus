@@ -83,6 +83,10 @@ Use a descriptive commit message such as `docs: clarify device requirements`
 or `fix: handle interrupted workspace downloads`. Keep generated binaries,
 credentials, and unrelated formatting out of the diff.
 
+Pull requests run Node validation (including the CLI tests) and an unsigned
+Android release build with JVM tests. See [CI and releases](docs/maintainers/ci-and-releases.md)
+for the exact local commands, toolchain, reports, and maintainer release gates.
+
 Review may ask for a smaller scope, additional evidence, or an alternative
 approach. Address comments in the same PR. Maintainers decide whether a change
 fits the project and can be maintained; there is no guaranteed review time or

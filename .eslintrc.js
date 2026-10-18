@@ -7,8 +7,8 @@ module.exports = {
   },
   overrides: [
     {
-      // The horus CLI runs on the computer under plain Node, not React Native.
-      files: ['cli/**/*.js'],
+      // Host CLI and CI utilities run under plain Node, not React Native.
+      files: ['cli/**/*.js', 'scripts/ci/*.js'],
       env: {node: true, es2022: true},
     },
     {
