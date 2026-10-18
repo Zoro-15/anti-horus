@@ -32,7 +32,6 @@ import {
   TERMINAL_SESSION_EVENT_NAME,
   TERMINAL_SESSION_SIGNALS,
   TERMINAL_SESSION_OUTPUT_WINDOW,
-  TERMINAL_TOOLCHAIN_TARGETS,
 } from '../../native/NativeTerminalRuntime';
 import {isValidRequestId} from '../distroContract';
 
@@ -88,8 +87,6 @@ export type TrustedSessionList = Readonly<
 
 const SESSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const STOP_REASON_PATTERN = /^[a-z0-9_]{1,64}$/;
-const SIGNAL_NAME_PATTERN = /^[a-z0-9_]{1,32}$/;
-const CANONICAL_BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
 
 export type TerminalSessionOperationErrorCode =
   | NativeTerminalRuntimeErrorCode
@@ -104,10 +101,6 @@ const SESSION_ERROR_CODES: readonly string[] = [
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function nonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
 }
 
 function isSafeIntegerInRange(
@@ -133,44 +126,6 @@ function isTerminalSessionSignal(value: unknown): value is TerminalSessionSignal
   return (
     typeof value === 'string' &&
     (TERMINAL_SESSION_SIGNALS as readonly string[]).includes(value)
-  );
-}
-
-function isValidSessionSignalName(value: unknown): value is string {
-  return typeof value === 'string' && SIGNAL_NAME_PATTERN.test(value);
-}
-
-function hasValidExitFields(value: Record<string, unknown>): boolean {
-  if (value.exitCode !== undefined && !isSafeIntegerInRange(value.exitCode, 0, 255)) {
-    return false;
-  }
-  if (value.signal !== undefined && !isValidSessionSignalName(value.signal)) {
-    return false;
-  }
-  return true;
-}
-
-function hasOnlyKeys(
-  value: Record<string, unknown>,
-  keys: readonly string[],
-): boolean {
-  return (
-    Object.keys(value).every(key => keys.includes(key)) &&
-    Object.values(value).every(item => item !== undefined)
-  );
-}
-
-function isValidSessionError(
-  value: Record<string, unknown>,
-  requestId: string,
-): boolean {
-  return (
-    hasOnlyKeys(value, ['requestId', 'status', 'errorCode']) &&
-    isValidRequestId(requestId) &&
-    isValidRequestId(value.requestId) &&
-    value.requestId === requestId &&
-    value.status === 'error' &&
-    isKnownErrorCode(value.errorCode)
   );
 }
 
