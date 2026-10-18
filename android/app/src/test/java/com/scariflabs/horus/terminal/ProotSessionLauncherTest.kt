@@ -1060,6 +1060,19 @@ class ProotSessionLauncherTest {
           TerminalRuntimeContract.TOOLCHAIN_TARGET_CLAUDE,
         ),
       )
+      val agyBin = File(home, ".local/bin/agy").apply {
+        requireNotNull(parentFile).mkdirs()
+        writeText("#!/bin/sh\nexec agy \"\$@\"\n")
+        setExecutable(true)
+      }
+      File(home, ".cache/horus/antigravity.ready").apply { requireNotNull(parentFile).mkdirs(); writeText("ready\n") }
+      assertTrue(
+        launcher(base, hostProc).hasProvisionedToolchain(
+          rootfs,
+          home,
+          TerminalRuntimeContract.TOOLCHAIN_TARGET_ANTIGRAVITY,
+        ),
+      )
     } finally {
       base.deleteRecursively()
     }

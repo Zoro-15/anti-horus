@@ -987,6 +987,11 @@ class ProotSessionLauncher(
     return launcher.isFile && launcher.canExecute() && !Files.isSymbolicLink(launcher.toPath())
   }
 
+  private fun hasAntigravityLauncher(guestHomeDir: File): Boolean {
+    val launcher = File(guestHomeDir, ".local/bin/agy")
+    return launcher.isFile && launcher.canExecute() && !Files.isSymbolicLink(launcher.toPath())
+  }
+
   private fun hasPortableShellLauncher(
     guestHomeDir: File,
     launcherName: String,
@@ -1021,13 +1026,14 @@ class ProotSessionLauncher(
       // run as the configured Alpine user, not root.
       return readyMarker.isFile && hasClaudeLauncher(guestHomeDir)
     }
+    if (target == TerminalRuntimeContract.TOOLCHAIN_TARGET_ANTIGRAVITY) {
+      return readyMarker.isFile && hasAntigravityLauncher(guestHomeDir)
+    }
     val rootfsNode = File(rootfsDir, "usr/bin/node").let { it.isFile && it.canExecute() }
     val rootfsNpm = File(rootfsDir, "usr/bin/npm").let { it.isFile && it.canExecute() }
     val launcher = when (target) {
-      TerminalRuntimeContract.TOOLCHAIN_TARGET_CLAUDE -> "claude"
       TerminalRuntimeContract.TOOLCHAIN_TARGET_CODEX -> "codex"
       TerminalRuntimeContract.TOOLCHAIN_TARGET_OPENCODE -> "opencode"
-      TerminalRuntimeContract.TOOLCHAIN_TARGET_ANTIGRAVITY -> "agy"
       else -> return false
     }
     val markerReady = if (target == TerminalRuntimeContract.TOOLCHAIN_TARGET_OPENCODE ||
@@ -1522,8 +1528,8 @@ ${ZSH_EXIT_SCRIPT.prependIndent("      ")}
             fi
           fi
         fi
-      elif [ "${'$'}target" = claude ]; then
-        if ! command -v zsh >/dev/null 2>&1 || ! command -v bash >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || [ ! -f /root/.cache/horus/claude.ready ]; then
+      elif [ "${'$'}target" = claude ] || [ "${'$'}target" = antigravity ]; then
+        if ! command -v zsh >/dev/null 2>&1 || ! command -v bash >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || [ ! -f "/root/.cache/horus/${'$'}target.ready" ]; then
           mark_provision_stage apk
           if ! run_logged /root/.cache/horus/alpine-bootstrap.log apk add --no-cache --no-progress bash curl ca-certificates git openssh-client-default zsh libgcc libstdc++; then
             if ! command -v zsh >/dev/null 2>&1 || ! zsh -fc ':' >/dev/null 2>&1 || ! command -v bash >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
@@ -1626,24 +1632,20 @@ ${ZSH_EXIT_SCRIPT.prependIndent("      ")}
         mark_provision_stage antigravity
         rm -f "${'$'}target_marker"
         install_antigravity() {
-          mkdir -p /root/.local/bin /root/.local/lib /root/.gemini/antigravity-cli
-          python3 -m pip install --no-cache-dir --upgrade google-antigravity 2>/dev/null || true
-          npm install --global --force --prefix /root/.local --no-package-lock --no-audit --no-fund --no-progress --loglevel=error @google/antigravity 2>/dev/null || true
+          rm -f /root/.local/bin/agy /root/.cache/horus/antigravity-install.sh
+          if curl --connect-timeout 15 --max-time 300 -fsSL https://antigravity.google/cli/install.sh -o /root/.cache/horus/antigravity-install.sh && [ -s /root/.cache/horus/antigravity-install.sh ]; then
+            bash /root/.cache/horus/antigravity-install.sh
+          fi
           if [ ! -x /root/.local/bin/agy ]; then
+            mkdir -p /root/.local/bin
             cat > /root/.local/bin/agy <<'EOF'
 #!/bin/sh
-if command -v python3 >/dev/null 2>&1 && python3 -c 'import google.antigravity' >/dev/null 2>&1; then
-  exec python3 -m google.antigravity "${'$'}@"
-elif [ -f "${'$'}HOME/.local/bin/agy.js" ]; then
-  exec /usr/bin/node "${'$'}HOME/.local/bin/agy.js" "${'$'}@"
+printf '%s\n' "Google Antigravity CLI (agy) active."
+printf '%s\n' "Configure your environment with: export GEMINI_API_KEY=<your-key>"
+if [ "${'$'}#" -eq 0 ]; then
+  exec zsh -l
 else
-  printf '%s\n' "Google Antigravity CLI (agy) active."
-  printf '%s\n' "Configure your environment with: export GEMINI_API_KEY=<your-key>"
-  if [ "${'$'}#" -eq 0 ]; then
-    exec zsh -l
-  else
-    exec "${'$'}@"
-  fi
+  exec "${'$'}@"
 fi
 EOF
             chmod u+rx /root/.local/bin/agy
@@ -1711,6 +1713,7 @@ EOF
             exit 25
           fi
         elif [ "${'$'}target" = antigravity ]; then
+          if [ ! -x /root/.local/bin/agy ]; then chmod u+rx /root/.local/bin/agy || true; fi
           test -x /root/.local/bin/agy
         else
           if ! {
